@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Task Detail</title>
+    <!-- Import Material Components Web CSS -->
+    <link href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css" rel="stylesheet">
+    <!-- Import Material Components Web JavaScript -->
+    <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
+    <!-- Initialize MDC Components -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            mdc.autoInit();
+        });
+    </script>
+    <style>
+        body {
+            font-family: Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            padding: 16px;
+            max-width: 800px;
+            margin: auto;
+        }
+
+        .mdc-card {
+            padding: 16px;
+        }
+
+        .mdc-card__title {
+            font-size: 1.5rem;
+            margin-bottom: 16px;
+        }
+
+        .mdc-card__supporting-text p {
+            margin: 8px 0;
+        }
+
+        .actions {
+            margin-top: 16px;
+            display: flex;
+            gap: 16px;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Navigation Bar -->
+    <header class="mdc-top-app-bar">
+        <div class="mdc-top-app-bar__row">
+            <section class="mdc-top-app-bar__section mdc-top-app-bar__section--align-start">
+                <a href="{{ url_for('index') }}" class="mdc-top-app-bar__title">Task Manager</a>
+            </section>
+            <section class="mdc-top-app-bar__section mdc-top-app-bar__section--align-end" role="toolbar">
+                <a href="{{ url_for('new_task') }}" class="mdc-button mdc-top-app-bar__action-item">
+                    Create New Task
+                </a>
+            </section>
+        </div>
+    </header>
+
+    <!-- Content -->
+    <div class="container">
+        <h1>Task Detail</h1>
+        <div class="mdc-card">
+            <div class="mdc-card__primary-action">
+                <h2 class="mdc-card__title">{{ task.description }}</h2>
+                <div class="mdc-card__supporting-text">
+                    <p><strong>Status:</strong> {{ task.status }}</p>
+                    <p><strong>Created At:</strong> {{ task.created_at }}</p>
+                    <p><strong>Type:</strong> {{ task.type }}</p>
+                    <p><strong>Evaluation Criteria:</strong> {{ task.evaluation_criteria }}</p>
+                    <p><strong>Retry Count:</strong> {{ task.retry_count }}</p>
+                    <p><strong>Max Retries:</strong> {{ task.max_retries }}</p>
+                </div>
+            </div>
+            <div class="mdc-card__actions">
+                <div class="actions">
+                    <form method="post" action="{{ url_for('delete_task', task_id=task['_id']) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="mdc-button mdc-button--raised mdc-button--accent" type="submit">Delete
+                            Task</button>
+                    </form>
+                    <a href="{{ url_for('index') }}" class="mdc-button mdc-button--outlined">Back to Task List</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

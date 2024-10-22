@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Task management system - View and manage your tasks">
+    <title>Task List | Task Manager</title>
+
+    <!-- Material Design Web Components -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/material-components-web/14.0.0/material-components-web.min.css"
+        rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/material-components-web/14.0.0/material-components-web.min.js"
+        defer></script>
+
+    <style>
+        /* High contrast mode support */
+        @media (forced-colors: active) {
+            .mdc-button--outlined {
+                border: 2px solid currentColor;
+            }
+        }
+
+        /* Base styles */
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            line-height: 1.5;
+            color: #333;
+            min-height: 100vh;
+        }
+
+        /* Skip to main content link */
+        .skip-link {
+            position: absolute;
+            top: -40px;
+            left: 0;
+            background: #000;
+            color: white;
+            padding: 8px;
+            z-index: 100;
+        }
+
+        .skip-link:focus {
+            top: 0;
+        }
+
+        .container {
+            padding: 16px;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding-top: 80px;
+            /* Account for fixed header */
+        }
+
+        /* Improved table styles */
+        .mdc-data-table {
+            width: 100%;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .mdc-data-table__header-cell {
+            font-weight: 600;
+            color: #202124;
+            background: #f8f9fa;
+            padding: 16px;
+            text-align: left;
+        }
+
+        .mdc-data-table__cell {
+            padding: 16px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        /* Status indicator styles */
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status-pending {
+            background-color: #fff3e0;
+            color: #e65100;
+        }
+
+        .status-completed {
+            background-color: #e8f5e9;
+            color: #1b5e20;
+        }
+
+        /* Focus styles */
+        :focus {
+            outline: 3px solid #2196f3;
+            outline-offset: 2px;
+        }
+
+        /* Button styles */
+        .mdc-button {
+            height: 36px;
+            padding: 0 16px;
+            border-radius: 4px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.0892857143em;
+        }
+
+        .mdc-button--raised {
+            background-color: #2196f3;
+            color: white;
+        }
+
+        .mdc-button--outlined {
+            border: 2px solid #2196f3;
+            color: #2196f3;
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .mdc-data-table {
+                display: block;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .container {
+                padding: 8px;
+            }
+        }
+
+        /* Loading state */
+        .loading-spinner {
+            display: none;
+            margin: 20px auto;
+        }
+
+        [aria-busy="true"] .loading-spinner {
+            display: block;
+        }
+
+        /* Error states */
+        .error-message {
+            color: #d32f2f;
+            background-color: #ffebee;
+            padding: 8px 16px;
+            border-radius: 4px;
+            margin: 16px 0;
+            display: none;
+        }
+
+        .error .error-message {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <header class="mdc-top-app-bar mdc-top-app-bar--fixed" role="banner">
+        <div class="mdc-top-app-bar__row">
+            <section class="mdc-top-app-bar__section mdc-top-app-bar__section--align-start">
+                <h1 class="mdc-top-app-bar__title">
+                    <a href="{{ url_for('index') }}" aria-label="Task Manager Home">Task Manager</a>
+                </h1>
+            </section>
+            <section class="mdc-top-app-bar__section mdc-top-app-bar__section--align-end" role="toolbar">
+                <a href="{{ url_for('new_task') }}" class="mdc-button mdc-button--raised" aria-label="Create new task">
+                    <span class="mdc-button__ripple"></span>
+                    <span class="mdc-button__label">Create New Task</span>
+                </a>
+            </section>
+        </div>
+    </header>
+
+    <main id="main-content" class="container">
+        <h2>Task List</h2>
+
+        <!-- Status messages -->
+        <div role="alert" aria-live="polite" class="error-message"></div>
+
+        <div class="mdc-data-table">
+            <div class="mdc-data-table__table-container">
+                <table class="mdc-data-table__table" aria-label="Task List">
+                    <thead>
+                        <tr class="mdc-data-table__header-row">
+                            <th class="mdc-data-table__header-cell" role="columnheader" scope="col">Description</th>
+                            <th class="mdc-data-table__header-cell" role="columnheader" scope="col">Status</th>
+                            <th class="mdc-data-table__header-cell" role="columnheader" scope="col">Created At</th>
+                            <th class="mdc-data-table__header-cell" role="columnheader" scope="col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="mdc-data-table__content">
+                        {% if tasks %}
+                        {% for task in tasks %}
+                        <tr class="mdc-data-table__row">
+                            <td class="mdc-data-table__cell">{{ task.description }}</td>
+                            <td class="mdc-data-table__cell">
+                                <span class="status-badge status-{{ task.status.lower() }}"
+                                    aria-label="Status: {{ task.status }}">
+                                    {{ task.status }}
+                                </span>
+                            </td>
+                            <td class="mdc-data-table__cell">
+                                <time datetime="{{ task.created_at.isoformat() }}">
+                                    {{ task.created_at.strftime('%B %d, %Y %H:%M') }}
+                                </time>
+                            </td>
+                            <td class="mdc-data-table__cell">
+                                <a href="{{ url_for('task_detail', task_id=task._id) }}"
+                                    class="mdc-button mdc-button--outlined"
+                                    aria-label="View details for task: {{ task.description }}">
+                                    <span class="mdc-button__ripple"></span>
+                                    <span class="mdc-button__label">View Details</span>
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr class="mdc-data-table__row">
+                            <td colspan="4" class="mdc-data-table__cell" style="text-align: center;">
+                                No tasks found. Create a new task to get started.
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="actions" style="margin-top: 24px;">
+            <form method="post" action="{{ url_for('reset_tasks') }}" id="reset-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="mdc-button mdc-button--raised" type="submit" aria-label="Reset all tasks"
+                    onclick="return confirm('Are you sure you want to reset all tasks? This action cannot be undone.')">
+                    <span class="mdc-button__ripple"></span>
+                    <span class="mdc-button__label">Reset All Tasks</span>
+                </button>
+            </form>
+        </div>
+    </main>
+
+    <script>
+        // Initialize Material Components
+        window.addEventListener('load', function () {
+            mdc.autoInit();
+
+            // Form submission handling
+            document.getElementById('reset-form').addEventListener('submit', async function (e) {
+                e.preventDefault();
+
+                try {
+                    const response = await fetch(this.action, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': document.querySelector('[name=csrf_token]').value
+                        },
+                        body: JSON.stringify({})
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+
+                    window.location.reload();
+                } catch (error) {
+                    const errorMessage = document.querySelector('.error-message');
+                    errorMessage.textContent = 'An error occurred while resetting tasks. Please try again.';
+                    errorMessage.parentElement.classList.add('error');
+                }
+            });
+        });
+
+        // Announce dynamic content changes
+        const announcer = document.createElement('div');
+        announcer.setAttribute('aria-live', 'polite');
+        announcer.setAttribute('aria-atomic', 'true');
+        announcer.classList.add('sr-only');
+        document.body.appendChild(announcer);
+
+        // Handle errors gracefully
+        window.addEventListener('error', function (e) {
+            const errorMessage = document.querySelector('.error-message');
+            errorMessage.textContent = 'An error occurred. Please refresh the page or try again later.';
+            errorMessage.parentElement.classList.add('error');
+        });
+    </script>
+</body>
+
+</html>

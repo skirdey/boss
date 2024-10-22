@@ -1,7 +1,12 @@
+
+# Project specific
+repo2pdf.ignore
+output.pdf
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+.env
 
 # C extensions
 *.so
