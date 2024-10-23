@@ -4,19 +4,26 @@ load_dotenv()
 import os
 import time
 import threading
-import requests  # For OpenAI API calls
+import requests
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
 from kafka import KafkaProducer
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from bson import ObjectId
+from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-
-from datetime import datetime, timezone
+class TaskState:
+    CREATED = "Created"
+    IN_PROGRESS = "In_Progress"
+    WAITING_FOR_EVALUATION = "Waiting_For_Evaluation"
+    AWAITING_HUMAN = "Awaiting_Human"
+    COMPLETED = "Completed"
+    FAILED = "Failed"
+    PENDING_NEXT_STEP = "Pending_Next_Step"
 
 def serialize_task(task):
     """
@@ -49,14 +56,17 @@ def serialize_task(task):
         return task
 
 class BOSS:
-    def __init__(self, db_uri='mongodb://localhost:27017/', kafka_bootstrap_servers='localhost:9092', check_interval=5, openai_api_key=None):
+    def __init__(self, db_uri='mongodb://localhost:27017/', 
+                 kafka_bootstrap_servers='localhost:9092', 
+                 check_interval=5, 
+                 openai_api_key=None):
         self.producer = KafkaProducer(
             bootstrap_servers=kafka_bootstrap_servers,
             value_serializer=lambda v: json.dumps(v).encode('utf-8')
         )
         self.check_interval = check_interval
         self.running = True
-        self.openai_api_key = openai_api_key if openai_api_key is not None else os.getenv('OPENAI_API_KEY')
+        self.openai_api_key = openai_api_key if openai_api_key else os.getenv('OPENAI_API_KEY')
 
         try:
             self.client = MongoClient(db_uri, serverSelectionTimeoutMS=5000)
@@ -64,124 +74,349 @@ class BOSS:
             self.db = self.client['task_db']
             self.tasks_collection = self.db['tasks']
             self.agents_collection = self.db['agents']
+            self.task_history_collection = self.db['task_history']
+            
+            # Create indexes
+            self.tasks_collection.create_index([("status", 1)])
+            self.task_history_collection.create_index([("task_id", 1)])
+            
         except ServerSelectionTimeoutError as err:
-            print(f"Error: Could not connect to MongoDB server: {err}")
-            self.client = None
-            self.tasks_collection = None
-            self.agents_collection = None
+            logger.error(f"Error: Could not connect to MongoDB server: {err}")
+            raise
 
     def check_tasks(self):
+        """Main task processing loop"""
         while self.running:
-            if self.tasks_collection is None or self.agents_collection is None:
-                logger.warning("Database is not available. Skipping task checking.")
-                time.sleep(self.check_interval)
-                continue
-
             try:
-                new_tasks = self.tasks_collection.find({"status": "Created"})
+                # Check for new tasks
+                new_tasks = self.tasks_collection.find({"status": TaskState.CREATED})
                 for task in new_tasks:
-                    agent_id = self.assign_agent(task)
-                    if agent_id:
-                        # Update task in MongoDB with agent_id before sending to queue
-                        self.tasks_collection.update_one(
-                            {"_id": task["_id"]},
-                            {
-                                "$set": {
-                                    "status": "In Progress",
-                                    "agent_id": agent_id,
-                                    "updated_at": datetime.utcnow()
-                                }
-                            }
-                        )
-                        # Fetch the updated task
-                        updated_task = self.tasks_collection.find_one({"_id": task["_id"]})
-                        self.send_task_to_agent(agent_id, updated_task)
-                    else:
-                        # If no agent is found, set status to Awaiting_Human
-                        self.tasks_collection.update_one(
-                            {"_id": task["_id"]},
-                            {
-                                "$set": {
-                                    "status": "Awaiting_Human",
-                                    "updated_at": datetime.utcnow()
-                                }
-                            }
-                        )
+                    self._process_new_task(task)
+
+                # Check for tasks waiting for evaluation
+                eval_tasks = self.tasks_collection.find({"status": TaskState.WAITING_FOR_EVALUATION})
+                for task in eval_tasks:
+                    self._evaluate_task_completion(task)
+
+                # Check for tasks pending next step
+                pending_tasks = self.tasks_collection.find({"status": TaskState.PENDING_NEXT_STEP})
+                for task in pending_tasks:
+                    self._determine_next_step(task)
+
             except Exception as e:
-                logger.error(f"An error occurred while checking tasks: {e}")
+                logger.error(f"Error in check_tasks: {e}")
 
             time.sleep(self.check_interval)
 
-    def assign_agent(self, task):
-        # Get all active agents and their capabilities
-        agents = list(self.agents_collection.find({"status": "active"}))
-        if not agents:
-            return None
+    def _process_new_task(self, task):
+        """Process a newly created task and store step estimates"""
+        # Generate step estimates without affecting processing
+        step_estimation = self._generate_step_estimates(task)
+        
+        # Update task with estimates and initial workflow information
+        self.tasks_collection.update_one(
+            {"_id": task["_id"]},
+            {
+                "$set": {
+                    "step_estimation": step_estimation,
+                    "estimated_total_steps": len(step_estimation["estimated_steps"]),
+                    "current_step": 0,
+                    "workflow_state": {
+                        "completed_steps": [],
+                        "remaining_steps": [],
+                        "current_agent": None
+                    },
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        # Continue with normal processing
+        self._determine_next_step(task)
 
-        # Prepare the prompt for OpenAI
-        agents_info = "\n".join([f"Agent ID: {agent['agent_id']}, Capabilities: {', '.join(agent['capabilities'])}" for agent in agents])
+    def _generate_step_estimates(self, task) -> Dict:
+        """
+        Generate estimates for the steps needed to complete the task.
+        This is stored for future reference but doesn't affect actual processing.
+        """
+        prompt = f"""
+        Analyze the following task and estimate the sequence of steps needed:
+        
+        Task Description: {task['description']}
+        
+        Provide a detailed estimation in JSON format with the following structure:
+        {{
+            "estimated_steps": [
+                {{
+                    "step_type": "one of: ping, port_scan, kali_cli, service_detection, vulnerability_scan, web_enumeration",
+                    "estimated_duration_minutes": "estimated time in minutes",
+                    "confidence_score": "0.0 to 1.0",
+                    "expected_outcome": "what this step should achieve",
+                    "potential_findings": ["possible discoveries from this step"]
+                }}
+            ],
+            "total_estimated_duration": "total minutes",
+            "estimation_confidence": "0.0 to 1.0"
+        }}
+        
+        Consider dependencies between steps and logical progression of information gathering.
+        """
+        
+        try:
+            response = self.call_openai_api(prompt)
+            estimation = json.loads(response)
+            
+            # Add metadata to the estimation
+            estimation["estimation_timestamp"] = datetime.now(timezone.utc)
+            estimation["estimation_model_version"] = "gpt-4o-mini"
+            
+            return estimation
+            
+        except Exception as e:
+            logger.error(f"Error in step estimation: {e}")
+            # Return a basic estimation as fallback
+            return {
+                "estimated_steps": [
+                    {
+                        "step_type": "ping",
+                        "estimated_duration_minutes": 1,
+                        "confidence_score": 0.9,
+                        "expected_outcome": "Basic connectivity check",
+                        "potential_findings": ["connectivity_status"]
+                    }
+                ],
+                "total_estimated_duration": 1,
+                "estimation_confidence": 0.9,
+                "estimation_timestamp": datetime.now(timezone.utc),
+                "estimation_model_version": "gpt-4o-mini"
+            }
+
+    def _evaluate_task_completion(self, task):
+        """Evaluate if the current step was successful and determine next actions"""
+        last_action = self.task_history_collection.find_one(
+            {"task_id": task["_id"]},
+            sort=[("timestamp", -1)]
+        )
+        
+        if not last_action:
+            logger.error(f"No history found for task {task['_id']}")
+            return
 
         prompt = f"""
-You are an intelligent task assignment system. Your job is to assign the following task to the most suitable agent.
-
-Rules:
-1. Only assign tasks to agents that have the necessary capabilities.
-2. If no agent has the necessary capabilities, set the status of the task to Awaiting_Human.
-
-Task Description:
-{task['description']}
-
-Available Agents:
-{agents_info}
-
-Based on the task description and the agent capabilities, which Agent ID is best suited to handle this task?
-
-Please respond with only the Agent ID or None if no agent has the necessary capabilities.
-"""
-
-        agent_id = self.call_openai_api(prompt)
-
-        logger.info(f"Assigned agent: {agent_id} for task: {task['_id']} with description: {task['description']}")
-
-        # Validate if the agent_id exists in the list of agents
-        if agent_id and any(agent['agent_id'] == agent_id for agent in agents):
-            return agent_id.strip()
+        Evaluate if the following task step was completed successfully:
+        
+        Task Description: {task['description']}
+        Agent Action: {last_action['action']}
+        Result: {last_action['result']}
+        
+        Respond with either 'SUCCESS' or 'FAILURE' followed by a brief explanation.
+        """
+        
+        evaluation = self.call_openai_api(prompt)
+        success = evaluation.startswith('SUCCESS')
+        
+        if success:
+            # Update task status and move to next step
+            self.tasks_collection.update_one(
+                {"_id": task["_id"]},
+                {
+                    "$set": {
+                        "status": TaskState.PENDING_NEXT_STEP,
+                        "current_step": task.get("current_step", 0) + 1,
+                        "updated_at": datetime.now(timezone.utc)
+                    },
+                    "$push": {
+                        "workflow_state.completed_steps": {
+                            "agent_id": last_action['agent_id'],
+                            "result": last_action['result'],
+                            "timestamp": datetime.now(timezone.utc)
+                        }
+                    }
+                }
+            )
         else:
-            return None
+            # Handle failure
+            self._handle_task_failure(task, last_action, evaluation)
 
-    def call_openai_api(self, prompt):
+    def _determine_next_step(self, task):
+        """Determine the next step based on available agents"""
+        # Get list of active agents
+        available_agents = list(self.agents_collection.find({"status": "active"}))
+        available_agent_ids = [agent["agent_id"] for agent in available_agents]
+        
+        prompt = f"""
+        Given the following task and available agents, determine the next best agent to handle it.
+        Only select from the available agents listed.
+        
+        Task Description: {task['description']}
+        Available Agents: {json.dumps(available_agent_ids)}
+        Task History: {json.dumps(task.get('workflow_state', {}).get('completed_steps', []))}
+        
+        If no suitable agent is available, respond with 'HUMAN_REVIEW'.
+        Otherwise, respond with the exact agent_id from the available list.
+        """
+        
+        next_agent = self.call_openai_api(prompt).strip()
+        
+        if next_agent == 'HUMAN_REVIEW' or next_agent not in available_agent_ids:
+            self.tasks_collection.update_one(
+                {"_id": task["_id"]},
+                {
+                    "$set": {
+                        "status": TaskState.AWAITING_HUMAN,
+                        "updated_at": datetime.now(timezone.utc),
+                        "notes": "No suitable agent available for next step"
+                    }
+                }
+            )
+        else:
+            self._assign_to_agent(task, next_agent)
+
+    def _assign_to_agent(self, task, agent_id):
+        """Assign task to specific agent and send to Kafka"""
+        # First check if the agent exists and is active
+        agent = self.agents_collection.find_one({
+            "agent_id": agent_id,
+            "status": "active"
+        })
+        
+        if not agent:
+            logger.warning(f"Agent {agent_id} not found or not active. Marking task for human review.")
+            self.tasks_collection.update_one(
+                {"_id": task["_id"]},
+                {
+                    "$set": {
+                        "status": TaskState.AWAITING_HUMAN,
+                        "updated_at": datetime.now(timezone.utc),
+                        "notes": f"Required agent {agent_id} not available"
+                    },
+                    "$push": {
+                        "audit_trail": {
+                            "action": "agent_unavailable",
+                            "agent_id": agent_id,
+                            "timestamp": datetime.now(timezone.utc)
+                        }
+                    }
+                }
+            )
+            return
+
+        # Update task status and agent assignment
+        self.tasks_collection.update_one(
+            {"_id": task["_id"]},
+            {
+                "$set": {
+                    "status": TaskState.IN_PROGRESS,
+                    "agent_id": agent_id,
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+        
+        # Record in history
+        self.task_history_collection.insert_one({
+            "task_id": task["_id"],
+            "agent_id": agent_id,
+            "action": "ASSIGNED",
+            "timestamp": datetime.now(timezone.utc)
+        })
+        
+        # Send to Kafka
+        self.send_task_to_agent(agent_id, task)
+
+    def _handle_task_failure(self, task, last_action, evaluation):
+        """Handle failed task execution"""
+        retry_count = task.get("retry_count", 0)
+        max_retries = task.get("max_retries", 3)
+        
+        if retry_count < max_retries:
+            # Retry with same agent
+            self.tasks_collection.update_one(
+                {"_id": task["_id"]},
+                {
+                    "$set": {
+                        "status": TaskState.CREATED,
+                        "retry_count": retry_count + 1,
+                        "updated_at": datetime.now(timezone.utc)
+                    },
+                    "$push": {
+                        "failure_history": {
+                            "agent_id": last_action['agent_id'],
+                            "evaluation": evaluation,
+                            "timestamp": datetime.now(timezone.utc)
+                        }
+                    }
+                }
+            )
+        else:
+            # Mark as failed and requiring human intervention
+            self.tasks_collection.update_one(
+                {"_id": task["_id"]},
+                {
+                    "$set": {
+                        "status": TaskState.FAILED,
+                        "failure_reason": evaluation,
+                        "updated_at": datetime.now(timezone.utc)
+                    }
+                }
+            )
+
+    def _complete_task(self, task):
+        """Mark task as completed and perform final updates"""
+        self.tasks_collection.update_one(
+            {"_id": task["_id"]},
+            {
+                "$set": {
+                    "status": TaskState.COMPLETED,
+                    "completed_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+
+    def call_openai_api(self, prompt: str) -> str:
+        """Call OpenAI API with error handling and rate limiting"""
         headers = {
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {self.openai_api_key}'
         }
         data = {
-            "model": "gpt-4o-mini",
+            "model": "gpt-4",
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 10,
             "temperature": 0
         }
-        response = requests.post('https://api.openai.com/v1/chat/completions', headers=headers, json=data)
-        response.raise_for_status()
-        response_json = response.json()
-        agent_id = response_json['choices'][0]['message']['content']
-        return agent_id.strip()
+        
+        try:
+            response = requests.post(
+                'https://api.openai.com/v1/chat/completions',
+                headers=headers,
+                json=data,
+                timeout=10
+            )
+            response.raise_for_status()
+            return response.json()['choices'][0]['message']['content'].strip()
+        except Exception as e:
+            logger.error(f"OpenAI API error: {e}")
+            raise
 
     def send_task_to_agent(self, agent_id, task):
-        """
-        Sends the serialized task to the specified Kafka topic.
-        """
-        task_serializable = serialize_task(task)  # Convert ObjectId to string
+        """Send serialized task to Kafka topic"""
+        task_serializable = serialize_task(task)
         topic = f"agent-{agent_id}"
         self.producer.send(topic, task_serializable)
         self.producer.flush()
-        logger.info(f"Task sent to agent {agent_id} on topic {topic}.")
+        logger.info(f"Task sent to agent {agent_id} on topic {topic}")
 
     def start(self):
+        """Start the BOSS service"""
         threading.Thread(target=self.check_tasks, daemon=True).start()
+        logger.info("BOSS service started")
 
     def stop(self):
+        """Stop the BOSS service"""
         self.running = False
         if self.client:
             self.client.close()
         if self.producer:
             self.producer.close()
+        logger.info("BOSS service stopped")

@@ -2,6 +2,7 @@ import asyncio
 import sys
 import logging
 from wrappers.wrapper_ping_agent import WrapperPing
+from wrappers.wrapper_network_scan import WrapperNetworkScan
 from boss import BOSS
 from kafka.errors import NoBrokersAvailable
 from kafka import KafkaProducer
@@ -17,9 +18,14 @@ async def start_component(component_cls):
     """
     Initializes and starts a component in a separate thread.
     """
-    component = component_cls()
-    components.append(component)
-    await asyncio.to_thread(component.start)
+    try:
+        logger.info(f"Initializing component: {component_cls.__name__}")
+        component = component_cls()
+        components.append(component)
+        await asyncio.to_thread(component.start)
+    except Exception as e:
+        logger.error(f"Failed to initialize {component_cls.__name__}: {str(e)}")
+        raise  # Re-raise to ensure the error is properly handled by the main loop
 
 async def shutdown():
     """
@@ -59,25 +65,31 @@ async def main():
 
     try:
         await connect_to_kafka(producer)
+        await asyncio.to_thread(setup_database)
+        
+        # Start components one at a time to better handle errors
+        try:
+            await start_component(BOSS)
+            logger.info("BOSS component started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start BOSS: {e}")
+            return
 
-        # Start all components
-        component_tasks = [
-            asyncio.create_task(start_component(BOSS)),
-            asyncio.create_task(start_component(WrapperPing)),
-            # Add more components here
-        ]
+        try:
+            await start_component(WrapperPing)
+            logger.info("Ping agent started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start Ping agent: {e}")
+            return
 
-        # Keep the main coroutine running indefinitely
+        try:
+            await start_component(WrapperNetworkScan)
+            logger.info("Network scan agent started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start Network scan agent: {e}. Please ensure nmap is installed.")
+            return
+        
         await asyncio.Event().wait()
-
-    except asyncio.CancelledError:
-        # Handle cancellation (e.g., from shutdown)
-        pass
-    except KeyboardInterrupt:
-        # Handle Ctrl+C gracefully
-        logger.info("\nShutdown requested...exiting")
-    finally:
-        await shutdown()
 
 def handle_shutdown(loop):
     """
