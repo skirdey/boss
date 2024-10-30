@@ -4,53 +4,108 @@
 <head>
     <meta charset="UTF-8">
     <title>Task Detail</title>
-    <!-- Import Material Components Web CSS -->
     <link href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css" rel="stylesheet">
-    <!-- Import Material Components Web JavaScript -->
     <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
-    <!-- Initialize MDC Components -->
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             mdc.autoInit();
         });
     </script>
     <style>
-        body {
-            font-family: Roboto, sans-serif;
-            margin: 0;
-            padding: 0;
+        /* Existing styles... */
+
+        /* New Styles for Tables and Sections */
+        .mdc-data-table__table {
+            width: 100%;
+            border-collapse: collapse;
         }
 
-        .container {
+        .mdc-data-table__header-cell,
+        .mdc-data-table__cell {
+            border: 1px solid #e8eaed;
+            padding: 8px;
+            text-align: left;
+        }
+
+        .mdc-data-table__header-cell {
+            background-color: #f1f3f4;
+            font-weight: bold;
+        }
+
+        .section-divider {
+            border-top: 2px solid #e8eaed;
+            margin: 24px 0;
+        }
+
+        .result-section {
+            background-color: #f8f9fa;
             padding: 16px;
-            max-width: 800px;
-            margin: auto;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            /* To preserve line breaks */
         }
 
-        .mdc-card {
-            padding: 16px;
-        }
-
-        .mdc-card__title {
-            font-size: 1.5rem;
-            margin-bottom: 16px;
-        }
-
-        .mdc-card__supporting-text p {
-            margin: 8px 0;
-        }
-
-        .actions {
+        .step-details {
             margin-top: 16px;
-            display: flex;
-            gap: 16px;
+        }
+
+        .step-details h4 {
+            margin-bottom: 8px;
+        }
+
+        .step-details ul {
+            list-style-type: disc;
+            margin-left: 20px;
+        }
+
+        /* New Styles for Tables and Sections */
+        .mdc-data-table__table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .mdc-data-table__header-cell,
+        .mdc-data-table__cell {
+            border: 1px solid #e8eaed;
+            padding: 8px;
+            text-align: left;
+        }
+
+        .mdc-data-table__header-cell {
+            background-color: #f1f3f4;
+            font-weight: bold;
+        }
+
+        .section-divider {
+            border-top: 2px solid #e8eaed;
+            margin: 24px 0;
+        }
+
+        .result-section {
+            background-color: #f8f9fa;
+            padding: 16px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            /* To preserve line breaks */
+        }
+
+        .step-details {
+            margin-top: 16px;
+        }
+
+        .step-details h4 {
+            margin-bottom: 8px;
+        }
+
+        .step-details ul {
+            list-style-type: disc;
+            margin-left: 20px;
         }
     </style>
 </head>
 
 <body>
-    <!-- Navigation Bar -->
-    <header class="mdc-top-app-bar">
+    <header class="mdc-top-app-bar mdc-top-app-bar--fixed">
         <div class="mdc-top-app-bar__row">
             <section class="mdc-top-app-bar__section mdc-top-app-bar__section--align-start">
                 <a href="{{ url_for('index') }}" class="mdc-top-app-bar__title">Task Manager</a>
@@ -63,21 +118,205 @@
         </div>
     </header>
 
-    <!-- Content -->
     <div class="container">
-        <h1>Task Detail</h1>
         <div class="mdc-card">
             <div class="mdc-card__primary-action">
                 <h2 class="mdc-card__title">{{ task.description }}</h2>
-                <div class="mdc-card__supporting-text">
-                    <p><strong>Status:</strong> {{ task.status }}</p>
-                    <p><strong>Created At:</strong> {{ task.created_at }}</p>
-                    <p><strong>Type:</strong> {{ task.type }}</p>
-                    <p><strong>Evaluation Criteria:</strong> {{ task.evaluation_criteria }}</p>
-                    <p><strong>Retry Count:</strong> {{ task.retry_count }}</p>
-                    <p><strong>Max Retries:</strong> {{ task.max_retries }}</p>
+
+                <!-- Basic Information -->
+                <div class="mdc-card__section">
+                    <h3 class="mdc-card__section-title">Basic Information</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <strong>Status:</strong>
+                            <span
+                                class="badge badge-{{ 'success' if task.status == 'Completed_Workflow' else 'warning' }}">
+                                {{ task.status.replace('_', ' ') }}
+                            </span>
+                        </div>
+                        <div class="info-item">
+                            <strong>Type:</strong> {{ task.type }}
+                        </div>
+                        <div class="info-item">
+                            <strong>Agent ID:</strong> {{ task.agent_id }}
+                        </div>
+                        <div class="info-item">
+                            <strong>Created:</strong> {{ task.created_at }}
+                        </div>
+                        <div class="info-item">
+                            <strong>Updated:</strong> {{ task.updated_at }}
+                        </div>
+                        <div class="info-item">
+                            <strong>Continuous:</strong> {{ 'Yes' if task.is_continuous else 'No' }}
+                        </div>
+                        <div class="info-item">
+                            <strong>Complexity:</strong> {{ task.complexity }}
+                        </div>
+                        <div class="info-item">
+                            <strong>Priority Score:</strong> {{ task.priority_score }}
+                        </div>
+                    </div>
                 </div>
+
+                <!-- Progress Information -->
+                <div class="mdc-card__section">
+                    <h3 class="mdc-card__section-title">Progress</h3>
+                    <div class="progress-section">
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <strong>Current Step:</strong> {{ task.current_step }} / {{ task.estimated_total_steps
+                                }}
+                            </div>
+                            <div class="info-item">
+                                <strong>Retry Count:</strong> {{ task.retry_count }} / {{ task.max_retries }}
+                            </div>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill"
+                                style="width: {{ (task.current_step / task.estimated_total_steps) * 100 }}%;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step Estimation -->
+                <div class="mdc-card__section">
+                    <h3 class="mdc-card__section-title">Step Estimation</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <strong>Total Duration:</strong> {{ task.step_estimation.total_estimated_duration }} minutes
+                        </div>
+                        <div class="info-item">
+                            <strong>Confidence Score:</strong> {{ task.step_estimation.estimation_confidence * 100 }}%
+                        </div>
+                        <div class="info-item">
+                            <strong>Model Version:</strong> {{ task.step_estimation.estimation_model_version }}
+                        </div>
+                        <div class="info-item">
+                            <strong>Estimation Timestamp:</strong> {{ task.step_estimation.estimation_timestamp }}
+                        </div>
+                    </div>
+
+                    {% if task.step_estimation.estimated_steps %}
+                    <div class="mdc-data-table" style="margin-top: 16px;">
+                        <table class="mdc-data-table__table">
+                            <thead>
+                                <tr class="mdc-data-table__header-row">
+                                    <th class="mdc-data-table__header-cell">Step Type</th>
+                                    <th class="mdc-data-table__header-cell">Duration (min)</th>
+                                    <th class="mdc-data-table__header-cell">Confidence (%)</th>
+                                    <th class="mdc-data-table__header-cell">Expected Outcome</th>
+                                </tr>
+                            </thead>
+                            <tbody class="mdc-data-table__content">
+                                {% for step in task.step_estimation.estimated_steps %}
+                                <tr class="mdc-data-table__row">
+                                    <td class="mdc-data-table__cell">{{ step.step_description }}</td>
+                                    <td class="mdc-data-table__cell">{{ step.estimated_duration_minutes }}</td>
+                                    <td class="mdc-data-table__cell">{{ step.confidence_score * 100 }}</td>
+                                    <td class="mdc-data-table__cell">{{ step.expected_outcome }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Workflow State -->
+                <div class="mdc-card__section">
+                    <h3 class="mdc-card__section-title">Workflow State</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <strong>Current Agent:</strong> {{ task.workflow_state.current_agent or 'None' }}
+                        </div>
+                        <div class="info-item">
+                            <strong>Last Inference:</strong> {{ task.workflow_state.last_inference.strftime('%Y-%m-%d
+                            %H:%M:%S') if task.workflow_state.last_inference else 'N/A' }}
+                        </div>
+                        <div class="info-item">
+                            <strong>Completed Steps:</strong> {{ task.workflow_state.completed_steps|length }}
+                        </div>
+                        <div class="info-item">
+                            <strong>Remaining Steps:</strong> {{ task.workflow_state.remaining_steps|length }}
+                        </div>
+                    </div>
+
+                    <!-- Completed Steps Details -->
+                    {% if task.workflow_state.completed_steps %}
+                    <div class="step-details">
+                        <h4>Completed Steps:</h4>
+                        <div class="mdc-data-table">
+                            <table class="mdc-data-table__table">
+                                <thead>
+                                    <tr class="mdc-data-table__header-row">
+                                        <th class="mdc-data-table__header-cell">Step Type</th>
+                                        <th class="mdc-data-table__header-cell">Completion Time</th>
+                                        <th class="mdc-data-table__header-cell">Outcome</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="mdc-data-table__content">
+                                    {% for step in task.workflow_state.completed_steps %}
+                                    <tr class="mdc-data-table__row">
+                                        <td class="mdc-data-table__cell">{{ step.step_description }}</td>
+                                        <td class="mdc-data-table__cell">{{ step.completed_at.strftime('%Y-%m-%d
+                                            %H:%M:%S') }}</td>
+                                        <td class="mdc-data-table__cell">{{ step.outcome }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Remaining Steps Details -->
+                    {% if task.workflow_state.remaining_steps %}
+                    <div class="step-details">
+                        <h4>Remaining Steps:</h4>
+                        <div class="mdc-data-table">
+                            <table class="mdc-data-table__table">
+                                <thead>
+                                    <tr class="mdc-data-table__header-row">
+                                        <th class="mdc-data-table__header-cell">Step Type</th>
+                                        <th class="mdc-data-table__header-cell">Estimated Duration (min)</th>
+                                        <th class="mdc-data-table__header-cell">Confidence (%)</th>
+                                        <th class="mdc-data-table__header-cell">Expected Outcome</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="mdc-data-table__content">
+                                    {% for step in task.workflow_state.remaining_steps %}
+                                    <tr class="mdc-data-table__row">
+                                        <td class="mdc-data-table__cell">{{ step.step_description }}</td>
+                                        <td class="mdc-data-table__cell">{{ step.estimated_duration_minutes }}</td>
+                                        <td class="mdc-data-table__cell">{{ step.confidence_score * 100 }}</td>
+                                        <td class="mdc-data-table__cell">{{ step.expected_outcome }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Final Result -->
+                <div class="mdc-card__section section-divider">
+                    <h3 class="mdc-card__section-title">Final Result</h3>
+                    <div class="result-section">
+                        {{ task.result | default("No result available.") }}
+                    </div>
+                </div>
+
+                {% if task.note %}
+                <div class="mdc-card__section">
+                    <h3 class="mdc-card__section-title">Notes</h3>
+                    <div class="info-item">
+                        {{ task.note }}
+                    </div>
+                </div>
+                {% endif %}
             </div>
+
             <div class="mdc-card__actions">
                 <div class="actions">
                     <form method="post" action="{{ url_for('delete_task', task_id=task['_id']) }}">

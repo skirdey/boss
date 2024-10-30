@@ -1,11 +1,13 @@
 import asyncio
-import sys
 import logging
-from wrappers.wrapper_ping_agent import WrapperPing
-from wrappers.wrapper_network_scan import WrapperNetworkScan
-from boss import BOSS
-from kafka.errors import NoBrokersAvailable
+import sys
+
 from kafka import KafkaProducer
+from kafka.errors import NoBrokersAvailable
+
+from boss import BOSS
+from wrappers.wrapper_conversation import WrapperConversation
+from wrappers.wrapper_ping_agent import WrapperPing
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -13,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Global variables to hold component instances
 components = []
+
 
 async def start_component(component_cls):
     """
@@ -25,7 +28,9 @@ async def start_component(component_cls):
         await asyncio.to_thread(component.start)
     except Exception as e:
         logger.error(f"Failed to initialize {component_cls.__name__}: {str(e)}")
-        raise  # Re-raise to ensure the error is properly handled by the main loop
+        # Do not re-raise the exception; allow the application to continue
+        # raise  # Commented out to prevent stopping the application
+
 
 async def shutdown():
     """
@@ -36,6 +41,7 @@ async def shutdown():
     await asyncio.gather(*shutdown_tasks, return_exceptions=True)
     logger.info("All components have been signaled to stop.")
 
+
 async def connect_to_kafka(producer):
     """
     Attempts to connect to Kafka with retry logic.
@@ -45,59 +51,54 @@ async def connect_to_kafka(producer):
 
     for attempt in range(1, max_retries + 1):
         try:
-            producer.send('test-topic', b'Test message')
+            producer.send("test-topic", b"Test message")
             producer.flush()
             logger.info("Connected to Kafka successfully.")
             return
         except NoBrokersAvailable:
             if attempt < max_retries:
-                logger.warning(f"Kafka brokers not available. Retrying in {retry_delay} seconds... (Attempt {attempt}/{max_retries})")
+                logger.warning(
+                    f"Kafka brokers not available. Retrying in {retry_delay} seconds... (Attempt {attempt}/{max_retries})"
+                )
                 await asyncio.sleep(retry_delay)
             else:
                 logger.error("Failed to connect to Kafka after multiple attempts.")
                 raise
 
+
 async def main():
     """
     Main entry point for the asyncio event loop.
     """
-    producer = KafkaProducer(bootstrap_servers='127.0.0.1:9092')
+    producer = KafkaProducer(bootstrap_servers="127.0.0.1:9092")
 
     try:
         await connect_to_kafka(producer)
-        await asyncio.to_thread(setup_database)
-        
+
         # Start components one at a time to better handle errors
-        try:
-            await start_component(BOSS)
-            logger.info("BOSS component started successfully")
-        except Exception as e:
-            logger.error(f"Failed to start BOSS: {e}")
-            return
+        await start_component(BOSS)
+        logger.info("BOSS component started successfully")
 
-        try:
-            await start_component(WrapperPing)
-            logger.info("Ping agent started successfully")
-        except Exception as e:
-            logger.error(f"Failed to start Ping agent: {e}")
-            return
+        await start_component(WrapperPing)
+        logger.info("Ping agent started successfully")
 
-        try:
-            await start_component(WrapperNetworkScan)
-            logger.info("Network scan agent started successfully")
-        except Exception as e:
-            logger.error(f"Failed to start Network scan agent: {e}. Please ensure nmap is installed.")
-            return
-        
-        await asyncio.Event().wait()
+        await start_component(WrapperConversation)
+        logger.info("Conversation agent started successfully")
 
-def handle_shutdown(loop):
-    """
-    Initiates the shutdown process by cancelling all tasks.
-    """
-    logger.info("\nShutdown requested...exiting")
-    for task in asyncio.all_tasks(loop):
-        task.cancel()
+        # await start_component(WrapperNetworkScan)
+        # logger.info("Network scan agent started successfully")
+
+        # Keep the application running until interrupted
+        while True:
+            await asyncio.sleep(5)
+
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt received. Shutting down.")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+    finally:
+        await shutdown()
+
 
 if __name__ == "__main__":
     try:
@@ -106,5 +107,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         # This ensures that if KeyboardInterrupt is not caught within main(), it is handled here.
         logger.info("\nShutdown requested...exiting")
-        asyncio.run(shutdown())
         sys.exit(0)

@@ -7,7 +7,6 @@
     <meta name="description" content="Create a new task in the Task Manager system">
     <title>Create New Task | Task Manager</title>
 
-    <!-- Material Design Web Components -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/material-components-web/14.0.0/material-components-web.min.css"
         rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/material-components-web/14.0.0/material-components-web.min.js"
@@ -30,28 +29,12 @@
             color: #333;
         }
 
-        /* Skip link */
-        .skip-link {
-            position: absolute;
-            top: -40px;
-            left: 0;
-            background: #000;
-            color: white;
-            padding: 8px;
-            z-index: 100;
-        }
-
-        .skip-link:focus {
-            top: 0;
-        }
-
         .container {
             padding: 24px 16px;
             max-width: 600px;
-            margin: 80px auto 0;
+            margin: 100px auto 0;
         }
 
-        /* Form styles */
         .form-field {
             margin-bottom: 24px;
             position: relative;
@@ -79,26 +62,6 @@
             display: block;
         }
 
-        /* Enhanced focus styles */
-        :focus {
-            outline: 3px solid var(--focus-outline-color);
-            outline-offset: 2px;
-        }
-
-        .mdc-text-field--focused:not(.mdc-text-field--invalid) .mdc-floating-label {
-            color: var(--primary-color);
-        }
-
-        /* Form validation styles */
-        .mdc-text-field--invalid {
-            border-color: var(--error-color);
-        }
-
-        .mdc-text-field--invalid .mdc-floating-label {
-            color: var(--error-color);
-        }
-
-        /* Button styles */
         .actions {
             display: flex;
             justify-content: space-between;
@@ -107,64 +70,12 @@
             gap: 16px;
         }
 
-        .mdc-button {
-            height: 36px;
-            padding: 0 16px;
-            border-radius: 4px;
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 0.0892857143em;
-        }
-
-        .mdc-button--raised {
-            background-color: var(--primary-color);
-            color: white;
-        }
-
-        .mdc-button--outlined {
-            border: 2px solid var(--primary-color);
-            color: var(--primary-color);
-        }
-
-        /* Form feedback */
-        .form-feedback {
-            padding: 12px;
-            border-radius: 4px;
-            margin-bottom: 16px;
-            display: none;
-        }
-
-        .form-feedback.error {
-            background-color: #ffebee;
+        .field-error {
             color: var(--error-color);
-            display: block;
+            font-size: 0.875rem;
+            margin-top: 4px;
         }
 
-        .form-feedback.success {
-            background-color: #e8f5e9;
-            color: var(--success-color);
-            display: block;
-        }
-
-        /* Loading state */
-        .loading-indicator {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(255, 255, 255, 0.8);
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .loading-indicator.visible {
-            display: flex;
-        }
-
-        /* Responsive design */
         @media (max-width: 600px) {
             .container {
                 padding: 16px;
@@ -183,43 +94,30 @@
 </head>
 
 <body>
-    <a href="#main-content" class="skip-link">Skip to main content</a>
-
-    <header class="mdc-top-app-bar mdc-top-app-bar--fixed" role="banner">
-        <div class="mdc-top-app-bar__row">
-            <section class="mdc-top-app-bar__section mdc-top-app-bar__section--align-start">
-                <h1 class="mdc-top-app-bar__title">
-                    <a href="{{ url_for('index') }}" aria-label="Task Manager Home">Task Manager</a>
-                </h1>
-            </section>
-        </div>
-    </header>
-
     <main id="main-content" class="container">
         <h2>Create New Task</h2>
 
-        <!-- Form feedback area -->
-        <div role="alert" aria-live="polite" class="form-feedback"></div>
-
-        <form method="post" action="{{ url_for('new_task') }}" id="create-task-form" novalidate>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <form method="post" action="{{ url_for('new_task') }}" id="create-task-form">
+            {{ form.csrf_token }}
 
             <div class="form-field">
-                <label class="mdc-text-field mdc-text-field--outlined">
+                <label
+                    class="mdc-text-field mdc-text-field--outlined {% if form.description.errors %}mdc-text-field--invalid{% endif %}">
                     <span class="mdc-notched-outline">
                         <span class="mdc-notched-outline__leading"></span>
                         <span class="mdc-notched-outline__notch">
-                            <span class="mdc-floating-label" id="description-label">Description</span>
+                            <span class="mdc-floating-label" id="description-label">{{ form.description.label }}</span>
                         </span>
                         <span class="mdc-notched-outline__trailing"></span>
                     </span>
-                    <input class="mdc-text-field__input" type="text" id="description" name="description" required
-                        aria-required="true" aria-describedby="description-hint description-error" minlength="5"
-                        maxlength="200">
+                    {{ form.description(class="mdc-text-field__input", aria_describedby="description-hint") }}
                 </label>
-                <div class="field-hint" id="description-hint">Enter a clear description of the task (5-200 characters)
-                </div>
-                <div class="field-error" id="description-error"></div>
+                <div class="field-hint" id="description-hint">{{ form.description.description }}</div>
+                {% if form.description.errors %}
+                {% for error in form.description.errors %}
+                <div class="field-error">{{ error }}</div>
+                {% endfor %}
+                {% endif %}
             </div>
 
             <div class="form-field">
@@ -227,49 +125,38 @@
                     <span class="mdc-notched-outline">
                         <span class="mdc-notched-outline__leading"></span>
                         <span class="mdc-notched-outline__notch">
-                            <span class="mdc-floating-label" id="type-label">Type</span>
+                            <span class="mdc-floating-label" id="criteria-label">{{ form.evaluation_criteria.label
+                                }}</span>
                         </span>
                         <span class="mdc-notched-outline__trailing"></span>
                     </span>
-                    <input class="mdc-text-field__input" type="text" id="type" name="type" aria-describedby="type-hint">
+                    {{ form.evaluation_criteria(class="mdc-text-field__input", aria_describedby="criteria-hint") }}
                 </label>
-                <div class="field-hint" id="type-hint">Optional: Categorize your task (e.g., "Bug", "Feature",
-                    "Maintenance")</div>
+                <div class="field-hint" id="criteria-hint">{{ form.evaluation_criteria.description }}</div>
             </div>
 
             <div class="form-field">
-                <label class="mdc-text-field mdc-text-field--outlined">
+                <label
+                    class="mdc-text-field mdc-text-field--outlined {% if form.max_retries.errors %}mdc-text-field--invalid{% endif %}">
                     <span class="mdc-notched-outline">
                         <span class="mdc-notched-outline__leading"></span>
                         <span class="mdc-notched-outline__notch">
-                            <span class="mdc-floating-label" id="criteria-label">Evaluation Criteria</span>
+                            <span class="mdc-floating-label" id="retries-label">{{ form.max_retries.label }}</span>
                         </span>
                         <span class="mdc-notched-outline__trailing"></span>
                     </span>
-                    <input class="mdc-text-field__input" type="text" id="evaluation_criteria" name="evaluation_criteria"
-                        aria-describedby="criteria-hint">
+                    {{ form.max_retries(class="mdc-text-field__input", aria_describedby="retries-hint") }}
                 </label>
-                <div class="field-hint" id="criteria-hint">Optional: Define success criteria for this task</div>
-            </div>
-
-            <div class="form-field">
-                <label class="mdc-text-field mdc-text-field--outlined">
-                    <span class="mdc-notched-outline">
-                        <span class="mdc-notched-outline__leading"></span>
-                        <span class="mdc-notched-outline__notch">
-                            <span class="mdc-floating-label" id="retries-label">Max Retries</span>
-                        </span>
-                        <span class="mdc-notched-outline__trailing"></span>
-                    </span>
-                    <input class="mdc-text-field__input" type="number" id="max_retries" name="max_retries" value="3"
-                        min="0" max="10" aria-describedby="retries-hint retries-error">
-                </label>
-                <div class="field-hint" id="retries-hint">Number of retry attempts allowed (0-10)</div>
-                <div class="field-error" id="retries-error"></div>
+                <div class="field-hint" id="retries-hint">{{ form.max_retries.description }}</div>
+                {% if form.max_retries.errors %}
+                {% for error in form.max_retries.errors %}
+                <div class="field-error">{{ error }}</div>
+                {% endfor %}
+                {% endif %}
             </div>
 
             <div class="actions">
-                <button class="mdc-button mdc-button--raised" type="submit">
+                <button type="submit" class="mdc-button mdc-button--raised">
                     <span class="mdc-button__ripple"></span>
                     <span class="mdc-button__label">Create Task</span>
                 </button>
@@ -281,13 +168,11 @@
         </form>
     </main>
 
-    <div class="loading-indicator" role="status" aria-hidden="true">
-        <div class="mdc-circular-progress" role="progressbar" aria-label="Creating task...">
-            <div class="mdc-circular-progress__determinate-container">
-                <svg class="mdc-circular-progress__determinate-circle-graphic" viewBox="0 0 48 48">
-                    <circle class="mdc-circular-progress__determinate-track" cx="24" cy="24" r="18" stroke-width="4" />
-                    <circle class="mdc-circular-progress__determinate-circle" cx="24" cy="24" r="18" stroke-width="4" />
-                </svg>
-            </div>
-        </div>
-    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            mdc.autoInit();
+        });
+    </script>
+</body>
+
+</html>

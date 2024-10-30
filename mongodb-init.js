@@ -7,15 +7,37 @@ db.createCollection('tasks');
 db.tasks.insertMany([
     {
         "_id": ObjectId(),
-        "description": "Find all info about 8.8.8.8",
-        "type": "comprehensive_scan",
+        "notes": "",
+        "description": "Ping 8.8.8.8",
         "status": "Created",
         "retry_count": 0,
         "max_retries": 3,
         "is_deleted": false,
         "created_at": new Date(),
         "updated_at": new Date(),
-        "estimated_total_steps": 3,
+        "estimated_total_steps": 1,
+        "current_step": 0,
+        "evaluation_criteria": "Ping is completed and results are returned",
+        "workflow_state": {
+            "completed_steps": [],
+            "remaining_steps": [],
+            "current_agent": null
+        },
+        // New fields for step estimation
+        "step_estimation": {},
+    },
+    {
+        "_id": ObjectId(),
+        "notes": "",
+        "description": "What is the reason of life",
+        "status": "Created",
+        "retry_count": 0,
+        "max_retries": 3,
+        "is_deleted": false,
+        "created_at": new Date(),
+        "updated_at": new Date(),
+        "estimated_total_steps": 1,
+        "evaluation_criteria": "An non-empty answer is returned",
         "current_step": 0,
         "workflow_state": {
             "completed_steps": [],
@@ -23,38 +45,7 @@ db.tasks.insertMany([
             "current_agent": null
         },
         // New fields for step estimation
-        "step_estimation": {
-            "estimated_steps": [
-                {
-                    "step_type": "ping",
-                    "estimated_duration_minutes": 1,
-                    "confidence_score": 0.95,
-                    "expected_outcome": "Basic connectivity check",
-                    "potential_findings": ["latency", "packet_loss"]
-                },
-                {
-                    "step_type": "port_scan",
-                    "estimated_duration_minutes": 5,
-                    "confidence_score": 0.85,
-                    "expected_outcome": "Open port discovery",
-                    "potential_findings": ["open_ports", "service_versions"]
-                },
-                {
-                    "step_type": "kali_cli",
-                    "estimated_duration_minutes": 15,
-                    "confidence_score": 0.75,
-                    "expected_outcome": "Detailed enumeration",
-                    "potential_findings": ["vulnerabilities", "misconfigurations"]
-                }
-            ],
-            "total_estimated_duration": 21,
-            "estimation_timestamp": new Date(),
-            "estimation_model_version": "gpt-4",
-            "estimation_confidence": 0.85
-        },
-        "evaluation_criteria": "Gather comprehensive information about the target IP",
-        "is_continuous": false,
-        "audit_trail": []
+        "step_estimation": {},
     }
 ]);
 
@@ -63,22 +54,25 @@ db.createCollection('agents');
 db.agents.insertMany([
     {
         "agent_id": "agent_network_ping",
-        "capabilities": ["ping", "basic_network_discovery"],
+        "capabilities": [
+            "can interact with command line interface to call `ping` command",
+        ],
         "status": "active",
-        "priority": 1
+        "active_tasks": [
+        ],
+
     },
     {
-        "agent_id": "agent_network_scan",
-        "capabilities": ["port_scan", "service_detection"],
+        "agent_id": "agent_conversation",
+        "capabilities": [
+            "can analyze data, answer questions and provide broad insights (do not have access to cli or internet)",
+
+        ],
         "status": "active",
-        "priority": 2
+        "active_tasks": [
+        ]
     },
-    {
-        "agent_id": "agent_kali_cli",
-        "capabilities": ["vulnerability_scan", "advanced_enumeration", "exploitation"],
-        "status": "active",
-        "priority": 3
-    }
+
 ]);
 
 

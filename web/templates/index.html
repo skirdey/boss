@@ -7,21 +7,21 @@
     <meta name="description" content="Task management system - View and manage your tasks">
     <title>Task List | Task Manager</title>
 
-    <!-- Material Design Web Components -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/material-components-web/14.0.0/material-components-web.min.css"
         rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/material-components-web/14.0.0/material-components-web.min.js"
         defer></script>
 
     <style>
-        /* High contrast mode support */
-        @media (forced-colors: active) {
-            .mdc-button--outlined {
-                border: 2px solid currentColor;
-            }
+        /* Base styles */
+        :root {
+            --primary-color: #1a73e8;
+            --error-color: #d32f2f;
+            --success-color: #2e7d32;
+            --warning-color: #ed6c02;
+            --info-color: #0288d1;
         }
 
-        /* Base styles */
         body {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             margin: 0;
@@ -29,131 +29,174 @@
             line-height: 1.5;
             color: #333;
             min-height: 100vh;
+            background-color: #f8f9fa;
         }
 
-        /* Skip to main content link */
-        .skip-link {
-            position: absolute;
-            top: -40px;
-            left: 0;
-            background: #000;
-            color: white;
-            padding: 8px;
-            z-index: 100;
-        }
-
-        .skip-link:focus {
-            top: 0;
-        }
-
+        /* Layout */
         .container {
-            padding: 16px;
-            max-width: 1200px;
+            padding: 24px;
+            max-width: 1400px;
             margin: 0 auto;
-            padding-top: 80px;
-            /* Account for fixed header */
+            padding-top: 88px;
         }
 
-        /* Improved table styles */
-        .mdc-data-table {
-            width: 100%;
-            border: 1px solid #e0e0e0;
-            border-radius: 4px;
+        /* Card styles */
+        .task-card {
+            background: white;
+            border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 16px;
+            transition: box-shadow 0.3s ease;
+            position: relative;
+            overflow: hidden;
         }
 
-        .mdc-data-table__header-cell {
-            font-weight: 600;
-            color: #202124;
-            background: #f8f9fa;
-            padding: 16px;
-            text-align: left;
+        .task-card:hover {
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
         }
 
-        .mdc-data-table__cell {
-            padding: 16px;
-            border-top: 1px solid #e0e0e0;
+        .task-card__content {
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr auto;
+            gap: 16px;
+            align-items: center;
         }
 
-        /* Status indicator styles */
+        .task-card__progress {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background-color: #e0e0e0;
+        }
+
+        .task-card__progress-bar {
+            height: 100%;
+            background-color: var(--primary-color);
+            transition: width 0.3s ease;
+        }
+
+        /* Status badges */
         .status-badge {
-            padding: 4px 8px;
-            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            border-radius: 16px;
             font-size: 0.875rem;
             font-weight: 500;
+            text-transform: capitalize;
         }
 
-        .status-pending {
-            background-color: #fff3e0;
-            color: #e65100;
+        .status-created {
+            background-color: #e3f2fd;
+            color: var(--info-color);
+        }
+
+        .status-running {
+            background-color: #e8f5e9;
+            color: var(--success-color);
+        }
+
+        .status-failed {
+            background-color: #ffebee;
+            color: var(--error-color);
         }
 
         .status-completed {
             background-color: #e8f5e9;
-            color: #1b5e20;
+            color: var(--success-color);
         }
 
-        /* Focus styles */
-        :focus {
-            outline: 3px solid #2196f3;
-            outline-offset: 2px;
+        .status-pending {
+            background-color: #fff3e0;
+            color: var(--warning-color);
         }
 
-        /* Button styles */
+        /* Info sections */
+        .info-section {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .info-label {
+            font-size: 0.75rem;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .info-value {
+            font-size: 0.875rem;
+            color: #333;
+        }
+
+        /* Actions */
+        .actions-wrapper {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
         .mdc-button {
             height: 36px;
             padding: 0 16px;
-            border-radius: 4px;
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 0.0892857143em;
+            border-radius: 18px;
+            text-transform: none;
         }
 
-        .mdc-button--raised {
-            background-color: #2196f3;
-            color: white;
+        .filters {
+            background: white;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
         }
 
-        .mdc-button--outlined {
-            border: 2px solid #2196f3;
-            color: #2196f3;
+        .search-box {
+            flex: 1;
+            min-width: 200px;
         }
 
         /* Responsive design */
-        @media (max-width: 768px) {
-            .mdc-data-table {
-                display: block;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
+        @media (max-width: 1200px) {
+            .task-card__content {
+                grid-template-columns: 2fr 1fr 1fr auto;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .task-card__content {
+                grid-template-columns: 1fr 1fr auto;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .task-card__content {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+
+            .actions-wrapper {
+                justify-content: flex-start;
             }
 
             .container {
-                padding: 8px;
+                padding: 16px;
+                padding-top: 80px;
             }
         }
 
-        /* Loading state */
-        .loading-spinner {
-            display: none;
-            margin: 20px auto;
-        }
-
-        [aria-busy="true"] .loading-spinner {
-            display: block;
-        }
-
-        /* Error states */
-        .error-message {
-            color: #d32f2f;
-            background-color: #ffebee;
-            padding: 8px 16px;
-            border-radius: 4px;
-            margin: 16px 0;
-            display: none;
-        }
-
-        .error .error-message {
-            display: block;
+        /* Utility classes */
+        .text-truncate {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
     </style>
 </head>
@@ -161,16 +204,15 @@
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
 
-    <header class="mdc-top-app-bar mdc-top-app-bar--fixed" role="banner">
+    <header class="mdc-top-app-bar mdc-top-app-bar--fixed">
         <div class="mdc-top-app-bar__row">
             <section class="mdc-top-app-bar__section mdc-top-app-bar__section--align-start">
                 <h1 class="mdc-top-app-bar__title">
                     <a href="{{ url_for('index') }}" aria-label="Task Manager Home">Task Manager</a>
                 </h1>
             </section>
-            <section class="mdc-top-app-bar__section mdc-top-app-bar__section--align-end" role="toolbar">
-                <a href="{{ url_for('new_task') }}" class="mdc-button mdc-button--raised" aria-label="Create new task">
-                    <span class="mdc-button__ripple"></span>
+            <section class="mdc-top-app-bar__section mdc-top-app-bar__section--align-end">
+                <a href="{{ url_for('new_task') }}" class="mdc-button mdc-button--raised">
                     <span class="mdc-button__label">Create New Task</span>
                 </a>
             </section>
@@ -178,66 +220,103 @@
     </header>
 
     <main id="main-content" class="container">
-        <h2>Task List</h2>
-
-        <!-- Status messages -->
-        <div role="alert" aria-live="polite" class="error-message"></div>
-
-        <div class="mdc-data-table">
-            <div class="mdc-data-table__table-container">
-                <table class="mdc-data-table__table" aria-label="Task List">
-                    <thead>
-                        <tr class="mdc-data-table__header-row">
-                            <th class="mdc-data-table__header-cell" role="columnheader" scope="col">Description</th>
-                            <th class="mdc-data-table__header-cell" role="columnheader" scope="col">Status</th>
-                            <th class="mdc-data-table__header-cell" role="columnheader" scope="col">Created At</th>
-                            <th class="mdc-data-table__header-cell" role="columnheader" scope="col">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody class="mdc-data-table__content">
-                        {% if tasks %}
-                        {% for task in tasks %}
-                        <tr class="mdc-data-table__row">
-                            <td class="mdc-data-table__cell">{{ task.description }}</td>
-                            <td class="mdc-data-table__cell">
-                                <span class="status-badge status-{{ task.status.lower() }}"
-                                    aria-label="Status: {{ task.status }}">
-                                    {{ task.status }}
-                                </span>
-                            </td>
-                            <td class="mdc-data-table__cell">
-                                <time datetime="{{ task.created_at.isoformat() }}">
-                                    {{ task.created_at.strftime('%B %d, %Y %H:%M') }}
-                                </time>
-                            </td>
-                            <td class="mdc-data-table__cell">
-                                <a href="{{ url_for('task_detail', task_id=task._id) }}"
-                                    class="mdc-button mdc-button--outlined"
-                                    aria-label="View details for task: {{ task.description }}">
-                                    <span class="mdc-button__ripple"></span>
-                                    <span class="mdc-button__label">View Details</span>
-                                </a>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                        {% else %}
-                        <tr class="mdc-data-table__row">
-                            <td colspan="4" class="mdc-data-table__cell" style="text-align: center;">
-                                No tasks found. Create a new task to get started.
-                            </td>
-                        </tr>
-                        {% endif %}
-                    </tbody>
-                </table>
+        <div class="filters">
+            <div class="search-box">
+                <div class="mdc-text-field mdc-text-field--outlined mdc-text-field--with-leading-icon"
+                    style="width: 100%;">
+                    <i class="material-icons mdc-text-field__icon">search</i>
+                    <input class="mdc-text-field__input" type="search" id="task-search" placeholder="Search tasks...">
+                    <div class="mdc-notched-outline">
+                        <div class="mdc-notched-outline__leading"></div>
+                        <div class="mdc-notched-outline__notch">
+                            <label class="mdc-floating-label">Search tasks</label>
+                        </div>
+                        <div class="mdc-notched-outline__trailing"></div>
+                    </div>
+                </div>
             </div>
+            <div class="mdc-select mdc-select--outlined">
+                <div class="mdc-select__anchor">
+                    <span class="mdc-select__selected-text"></span>
+                    <select id="status-filter">
+                        <option value="">All statuses</option>
+                        <option value="created">Created</option>
+                        <option value="running">Running</option>
+                        <option value="completed">Completed</option>
+                        <option value="failed">Failed</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="tasks-container">
+            {% for task in tasks %}
+            <div class="task-card">
+                <div class="task-card__content">
+                    <div class="info-section">
+                        <div class="info-label">Description</div>
+                        <div class="info-value text-truncate">{{ task.description }}</div>
+                    </div>
+
+                    <div class="info-section">
+                        <div class="info-label">Status</div>
+                        <div class="status-badge status-{{ task.css_status }}">
+                            {{ task.status.replace('_', ' ') }}
+                        </div>
+                    </div>
+
+                    <div class="info-section">
+                        <div class="info-label">Type</div>
+                        <div class="info-value">{{ task.type }}</div>
+                        <div class="info-label">Agent</div>
+                        <div class="info-value text-truncate">{{ task.agent_id }}</div>
+                    </div>
+
+                    <div class="info-section">
+                        <div class="info-label">Created</div>
+                        <div class="info-value">
+                            <time datetime="{{ task.created_at }}">
+                                {{ task.created_at.strftime('%b %d, %Y %H:%M') }}
+                            </time>
+                        </div>
+                        <div class="info-label">Retries</div>
+                        <div class="info-value">{{ task.retry_count }}/{{ task.max_retries }}</div>
+                    </div>
+
+                    <div class="actions-wrapper">
+                        <a href="{{ url_for('task_detail', task_id=task._id) }}" class="mdc-button mdc-button--outlined"
+                            aria-label="View details for task: {{ task.description }}">
+                            <span class="mdc-button__label">View Details</span>
+                        </a>
+                    </div>
+                </div>
+
+                {% if task.estimated_total_steps > 0 %}
+                <div class="task-card__progress">
+                    <div class="task-card__progress-bar"
+                        style="width: {{ (task.current_step / task.estimated_total_steps * 100)|round }}%"
+                        aria-valuenow="{{ (task.current_step / task.estimated_total_steps * 100)|round }}"
+                        aria-valuemin="0" aria-valuemax="100" role="progressbar"></div>
+                </div>
+                {% endif %}
+
+            </div>
+            {% else %}
+            <div class="task-card">
+                <div class="task-card__content" style="text-align: center;">
+                    <div style="grid-column: 1 / -1;">
+                        No tasks found. Create a new task to get started.
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
         </div>
 
         <div class="actions" style="margin-top: 24px;">
             <form method="post" action="{{ url_for('reset_tasks') }}" id="reset-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="mdc-button mdc-button--raised" type="submit" aria-label="Reset all tasks"
-                    onclick="return confirm('Are you sure you want to reset all tasks? This action cannot be undone.')">
-                    <span class="mdc-button__ripple"></span>
+                <button class="mdc-button mdc-button--raised" type="submit"
+                    style="background-color: var(--error-color);">
                     <span class="mdc-button__label">Reset All Tasks</span>
                 </button>
             </form>
@@ -249,9 +328,38 @@
         window.addEventListener('load', function () {
             mdc.autoInit();
 
-            // Form submission handling
+            // Search functionality
+            const searchInput = document.getElementById('task-search');
+            const taskCards = document.querySelectorAll('.task-card');
+
+            searchInput.addEventListener('input', function (e) {
+                const searchTerm = e.target.value.toLowerCase();
+                taskCards.forEach(card => {
+                    const description = card.querySelector('.info-value').textContent.toLowerCase();
+                    card.style.display = description.includes(searchTerm) ? 'block' : 'none';
+                });
+            });
+
+            // Status filter
+            const statusFilter = document.getElementById('status-filter');
+            statusFilter.addEventListener('change', function (e) {
+                const status = e.target.value.toLowerCase();
+                taskCards.forEach(card => {
+                    if (!status || card.querySelector('.status-badge').classList.contains(`status-${status}`)) {
+                        card.style.display = 'block';
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+            });
+
+            // Form submission handling with confirmation
             document.getElementById('reset-form').addEventListener('submit', async function (e) {
                 e.preventDefault();
+
+                if (!confirm('Are you sure you want to reset all tasks? This action cannot be undone.')) {
+                    return;
+                }
 
                 try {
                     const response = await fetch(this.action, {
@@ -263,31 +371,12 @@
                         body: JSON.stringify({})
                     });
 
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok');
-                    }
-
+                    if (!response.ok) throw new Error('Network response was not ok');
                     window.location.reload();
                 } catch (error) {
-                    const errorMessage = document.querySelector('.error-message');
-                    errorMessage.textContent = 'An error occurred while resetting tasks. Please try again.';
-                    errorMessage.parentElement.classList.add('error');
+                    alert('An error occurred while resetting tasks. Please try again.');
                 }
             });
-        });
-
-        // Announce dynamic content changes
-        const announcer = document.createElement('div');
-        announcer.setAttribute('aria-live', 'polite');
-        announcer.setAttribute('aria-atomic', 'true');
-        announcer.classList.add('sr-only');
-        document.body.appendChild(announcer);
-
-        // Handle errors gracefully
-        window.addEventListener('error', function (e) {
-            const errorMessage = document.querySelector('.error-message');
-            errorMessage.textContent = 'An error occurred. Please refresh the page or try again later.';
-            errorMessage.parentElement.classList.add('error');
         });
     </script>
 </body>
