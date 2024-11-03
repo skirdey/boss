@@ -1,20 +1,15 @@
+# wrappers/wrapper_agent.py
+
 import json
 import logging
 import os
 import threading
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
 from typing import Any, Dict
 
 import colorlog
-from anthropic import Anthropic
 from kafka import KafkaConsumer, KafkaProducer
 from openai import OpenAI
-from pymongo import MongoClient
-
-from models import StepResult
-from utils import serialize_task
-from workflow_state_manager import WorkflowStateManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,104 +23,23 @@ class WrapperAgent(ABC):
     def __init__(
         self,
         agent_id,
-        db_uri="mongodb://localhost:27017/",
         kafka_bootstrap_servers="localhost:9092",
     ):
         self.agent_id = agent_id
-        self.topic = f"tasks_for_{self.agent_id}"
+        self.task_topic = f"tasks_for_{self.agent_id}"
+        self.result_topic = f"results_from_{self.agent_id}"
         self.running = True
         self.consumer = KafkaConsumer(
-            self.topic,
+            self.task_topic,
             bootstrap_servers=kafka_bootstrap_servers,
             value_deserializer=lambda m: json.loads(m.decode("utf-8")),
             consumer_timeout_ms=1000,
         )
         self.producer = KafkaProducer(
             bootstrap_servers=kafka_bootstrap_servers,
-            value_serializer=lambda v: json.dumps(serialize_task(v)).encode("utf-8"),
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
         )
-        self.client = MongoClient(db_uri)
-        self.db = self.client["task_db"]
-        self.tasks_collection = self.db["tasks"]
-        self.agents_collection = self.db["agents"]
         self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
-        self.workflow_state_manager = WorkflowStateManager(
-            self.tasks_collection, self.db["task_history"], self.agents_collection
-        )
-
-    def process_step(self, task: Dict) -> Dict[str, Any]:
-        """Process a single step of the workflow"""
-        # pass
-        try:
-            current_step = self.workflow_state_manager.get_current_step(task["_id"])
-            if not current_step:
-                logger.warning(
-                    f"No current step found for task {task['_id']}. Checking if workflow is complete."
-                )
-
-                # Check if workflow is actually complete
-                workflow_state = self.workflow_state_manager.get_workflow_state(
-                    task["_id"]
-                )
-
-                if workflow_state and workflow_state.get("completed", False):
-                    return {
-                        "success": True,
-                        "result": "Workflow completed",
-                        "task_id": task["_id"],
-                    }
-
-                return {
-                    "success": False,
-                    "error": "No current step found and workflow not complete",
-                    "task_id": task["_id"],
-                }
-
-            # Process the step using the abstract method
-            start_time = datetime.now(timezone.utc)
-            result = self.process_task(task)
-            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-
-            # Create StepResult object
-            step_result = StepResult(
-                step_description=current_step["step_description"],
-                success=result["success"],
-                result=result.get("result", ""),
-                error=result.get("error", ""),
-                execution_time=execution_time,
-                metadata={"agent_id": self.agent_id},
-            )
-
-            # Update workflow state with step result
-            updated = self.workflow_state_manager.update_workflow_state(
-                task_id=task["_id"],
-                step_result=step_result,
-                agent_id=self.agent_id,
-            )
-
-            if not updated:
-                logger.error(f"Failed to update workflow state for task {task['_id']}")
-                return {
-                    "success": False,
-                    "error": "Failed to update workflow state",
-                    "task_id": task["_id"],
-                }
-
-            return {
-                "success": True,
-                "result": result.get("result", ""),
-                "task_id": task["_id"],
-            }
-
-        except Exception as e:
-            logger.error(f"Error processing step: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e),
-                "task_id": task["_id"],
-            }
 
     def receive(self) -> None:
         logger.info(f"{self.agent_id} started listening for tasks.")
@@ -140,19 +54,31 @@ class WrapperAgent(ABC):
                         f"Received task: {task['_id']} with status {task['status']}"
                     )
 
-                    # Process the current step
-                    result = self.process_step(task)
+                    # Process the task
+                    result = self.process_task(task)
 
-                    # logger.info(f"wrapper_agent Result recieve: {pformat(result)}")
+                    logger.info(f"Processed result in WrapperAgent: {result}")
+
+                    # Send the result back to BOSS via Kafka
+                    self.send_result_to_boss(result)
 
             except Exception as e:
                 if not self.running:
                     break
                 logger.error(f"Error in receive method: {e}")
 
+    def send_result_to_boss(self, result: Dict[str, Any]) -> None:
+        """Send the task result back to the BOSS via Kafka"""
+        try:
+            self.producer.send(self.result_topic, result)
+            self.producer.flush()
+            logger.info(f"Sent result back to BOSS: {result}")
+        except Exception as e:
+            logger.error(f"Error sending result to BOSS: {e}")
+
     @abstractmethod
     def process_task(self, task: Dict) -> Dict[str, Any]:
-        """Process a single task step"""
+        """Process a single task and return the result"""
         pass
 
     def start(self):
@@ -166,8 +92,6 @@ class WrapperAgent(ABC):
             self.consumer.close()
         if self.producer:
             self.producer.close()
-        if self.client:
-            self.client.close()
         if self.receive_thread.is_alive():
             self.receive_thread.join()
         logger.info(f"{self.agent_id} has been stopped.")

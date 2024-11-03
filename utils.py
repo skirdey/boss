@@ -44,3 +44,13 @@ def ensure_timezone_aware(dt: Optional[datetime]) -> Optional[datetime]:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def get_object_id(id_value) -> Optional[ObjectId]:
+    """Safely convert string to ObjectId"""
+    if isinstance(id_value, ObjectId):
+        return id_value
+    try:
+        return ObjectId(id_value)
+    except Exception:
+        return None

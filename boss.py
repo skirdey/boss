@@ -1,15 +1,14 @@
-import signal
-import traceback
-
 from dotenv import load_dotenv
 
 from agent_scheduler import AgentScheduler
+from boss_prompts import BossPrompts
 from models import (
+    AgentSelectionAnalysis,
     StepEstimationResponse,
     StepResult,
+    TaskEvaluationResponse,
     TaskState,
 )
-from workflow_state_manager import WorkflowStateManager
 
 load_dotenv()
 
@@ -18,17 +17,17 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
-from kafka import KafkaProducer
+from kafka import KafkaConsumer, KafkaProducer
 from openai import OpenAI
 from pydantic import BaseModel
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
 
-from utils import ensure_timezone_aware, serialize_task
+from utils import serialize_task
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -41,29 +40,10 @@ class BOSS:
         kafka_bootstrap_servers="localhost:9092",
         check_interval=10,
         openai_api_key=None,
-        max_retries=3,
-        retry_delay=5,
     ):
+        self.prompts = BossPrompts()
         self.threads = []
         self.shutdown_event = threading.Event()
-
-        self.is_shutting_down = False
-
-        def signal_handler(signum, frame):
-            import sys
-
-            if self.is_shutting_down:
-                logger.warning("Received additional shutdown signal, forcing exit...")
-                os._exit(1)  # Force exit if we get a second signal
-
-            logger.info(f"Received signal {signum}")
-            self.shutdown_event.set()
-            self.stop()
-            # Exit the program after clean shutdown
-            sys.exit(0)
-
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
 
         self.task_thread = None
         self.monitor_thread = None
@@ -72,8 +52,6 @@ class BOSS:
             value_serializer=lambda v: json.dumps(v).encode("utf-8"),
         )
         self.check_interval = check_interval
-        self.max_retries = max_retries
-        self.retry_delay = retry_delay
         self.running = True
         self.openai_api_key = (
             openai_api_key if openai_api_key else os.getenv("OPENAI_API_KEY")
@@ -87,40 +65,123 @@ class BOSS:
             self.tasks_collection = self.db["tasks"]
             self.agents_collection = self.db["agents"]
             self.task_history_collection = self.db["task_history"]
+            self.scheduler = AgentScheduler(
+                self.tasks_collection, self.agents_collection
+            )
 
         except ServerSelectionTimeoutError as err:
             logger.error(f"Error: Could not connect to MongoDB server: {err}")
             raise
 
-        try:
-            self.scheduler = AgentScheduler(
-                self.tasks_collection, self.agents_collection
-            )
-            self.workflow_manager = WorkflowStateManager(
-                self.tasks_collection,
-                self.task_history_collection,
-                self.agents_collection,
-            )
-            logger.debug("WorkflowStateManager initialized successfully.")
-        except Exception as e:
-            logger.error(f"Failed to initialize WorkflowStateManager: {e}")
-            raise
-
-    def _generate_step_estimates(self, task: Dict) -> Dict:
-        """
-        Generate detailed step estimates for task execution based on available agents and their capabilities.
-        Utilizes structured output parsing with OpenAI to ensure steps are aligned with agent capabilities.
-        """
-        logger.debug(
-            "Starting step estimation with consideration of agent capabilities."
+        self.result_consumer = KafkaConsumer(
+            bootstrap_servers=kafka_bootstrap_servers,
+            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+            consumer_timeout_ms=1000,
+            group_id="boss_group",  # Add this line
         )
 
-        # Step 1: Retrieve Available Agents and Their Capabilities
+        # Subscribe to all agent result topics
+        agent_result_topics = [
+            f"results_from_{agent['agent_id']}"
+            for agent in self.agents_collection.find()
+        ]
+
+        print(f"Subscribing to topics: {agent_result_topics}")
+        self.result_consumer.subscribe(agent_result_topics)
+
+    def consume_agent_results(self):
+        logger.info("BOSS started listening for agent results.")
+        while self.running:
+            try:
+                for message in self.result_consumer:
+                    if not self.running:
+                        break
+                    result = message.value
+                    logger.info(f"Received result from agent: {result}")
+                    self.handle_agent_result(result)
+            except Exception as e:
+                if not self.running:
+                    break
+                logger.error(f"Error in consume_agent_results: {e}")
+            self.shutdown_event.wait(timeout=self.check_interval)
+
+    def handle_agent_result(self, result: Dict[str, Any]):
+        """Handle the result received from an agent via Kafka"""
         try:
+            task_id = result.get("task_id")
+            if not task_id:
+                logger.error("Received result without task_id.")
+                return
+
+            task = self.tasks_collection.find_one({"_id": ObjectId(task_id)})
+            if not task:
+                logger.error(f"Task {task_id} not found in database.")
+                return
+
+            # Update the current step based on the result
+            current_step_index = task.get("current_step_index")
+            if current_step_index is None:
+                logger.error(f"No current_step_index for task {task_id}")
+                return
+
+            steps = task.get("steps", [])
+            if current_step_index >= len(steps):
+                logger.error(f"Invalid current_step_index for task {task_id}")
+                return
+
+            current_step = steps[current_step_index]
+            step_description = current_step.get("step_description", "")
+            agent_result = result.get("result", "")
+
+            # Evaluate the step result using LLM
+            evaluation_success = self._evaluate_step_result_with_llm(
+                step_description, agent_result
+            )
+
+            if evaluation_success:
+                current_step["state"] = TaskState.COMPLETED_STEP.value
+                current_step["result"] = agent_result
+                current_step["updated_at"] = datetime.now(timezone.utc)
+            else:
+                current_step["state"] = TaskState.FAILED.value
+                current_step["error"] = "Result does not satisfy the step description."
+                current_step["updated_at"] = datetime.now(timezone.utc)
+
+            # Update the task in the database
+            self.tasks_collection.update_one(
+                {"_id": ObjectId(task_id)},
+                {
+                    "$set": {
+                        "steps": steps,
+                        "current_step_index": None,
+                        "current_agent": None,
+                        "updated_at": datetime.now(timezone.utc),
+                    }
+                },
+            )
+            logger.info(f"Updated task {task_id} with result from agent.")
+
+            # Re-fetch the task to get the updated state
+            task = self.tasks_collection.find_one({"_id": ObjectId(task_id)})
+
+            # Handle next steps or completion
+            if evaluation_success:
+                self._process_task_with_inference(task)
+            else:
+                # Handle failure, possibly generate additional steps
+                self._handle_failed_completion(task, result)
+
+        except Exception as e:
+            logger.error(f"Error handling agent result: {e}")
+
+    def _generate_steps_from_description(self, description: str) -> List[Dict]:
+        """Generate steps from task description using OpenAI LLM"""
+        try:
+            # Get agent capabilities
             active_agents = list(self.agents_collection.find({"status": "active"}))
             if not active_agents:
                 logger.warning("No active agents available for step estimation.")
-                return self._generate_fallback_estimation("No active agents available.")
+                return []
 
             capabilities_list = ", ".join(
                 [
@@ -130,341 +191,393 @@ class BOSS:
             )
             logger.debug(f"Aggregated Agent Capabilities: {capabilities_list}")
 
-        except Exception as e:
-            logger.error(f"Error retrieving agent capabilities: {e}")
-            return self._generate_fallback_estimation(
-                "Error retrieving agent capabilities."
+            # Format messages properly for OpenAI API
+            messages = self.prompts.format_step_generation(
+                task_description=description, capabilities_list=capabilities_list
             )
 
-        # Step 2: Modify the OpenAI Prompt to Include Agent Capabilities
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are an assistant that generates detailed step estimates for agentic LLM workflow tasks. "
-                    "Your job is to keep it simple and to the minimum number of steps required. "
-                    "Assume that the agent will be running in a command line or some other agent interface, "
-                    "so the steps should be things that a human would do in a command line, like 'ping', 'curl', 'ssh', 'scp', etc. "
-                    "Each step must include 'fallback_steps' and 'validation_criteria'. "
-                    "Provide the response in JSON format matching the StepEstimationResponse model."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Analyze the following task and estimate the sequence of steps needed based on the available agents and their capabilities.\n\n"
-                    f"Task Description: {task['description']}\n"
-                    f"Task Complexity: {task.get('complexity', 'unknown')}\n"
-                    f"Context: {task.get('context', 'No additional context provided')}\n"
-                    f"Available Agents and Capabilities: {capabilities_list}"
-                ),
-            },
-        ]
+            logger.debug(f"Generated messages: {messages}")
 
-        model = "gpt-4o"
-
-        try:
-            completion = self.openai_client.beta.chat.completions.parse(
-                model=model,
+            # Call OpenAI API with structured response
+            estimation = self.call_openai_api_structured(
                 messages=messages,
-                response_format=StepEstimationResponse,
-                temperature=0,
+                response_model=StepEstimationResponse,
+                model="gpt-4o",
             )
 
-            estimation = completion.choices[0].message.parsed
+            logger.debug(f"Received estimation: {estimation}")
 
-            # logger.debug(f"Step Estimation: {pformat(estimation.model_dump())}")
+            steps = []
+            for idx, estimate in enumerate(estimation.estimated_steps):
+                step = {
+                    "step_number": idx + 1,
+                    "step_description": estimate.step_description,
+                    "state": TaskState.CREATED.value,
+                    "estimated_duration": estimate.estimated_duration_minutes,
+                    "confidence_score": estimate.confidence_score,
+                    "expected_outcome": estimate.expected_outcome,
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+                steps.append(step)
 
-            # Add metadata
-            estimation_dict = estimation.model_dump()
-            estimation_dict["estimation_model_version"] = model
-            estimation_dict["last_updated"] = datetime.now(timezone.utc)
-
-            return estimation_dict
+            return steps
 
         except Exception as e:
-            logger.error(f"Unexpected error in step estimation: {e}")
-            return self._generate_fallback_estimation("Error during step estimation.")
+            logger.error(f"Error generating steps from description: {e}")
+            return []
 
-    def _generate_fallback_estimation(self, reason: Optional[str] = None) -> Dict:
+    def _generate_additional_steps(
+        self, task: Dict, step_result: StepResult
+    ) -> List[Dict]:
         """
-        Generate a basic fallback estimation when main estimation fails or no agents are available.
-        Optionally include a reason for the fallback.
+        Generate additional steps to handle a failed step using OpenAI LLM
         """
-        fallback_steps = {
-            "conversation": {
-                "step_description": "Conduct a conversation to gather more information",
-                "estimated_duration_minutes": 5,
-                "confidence_score": 0.9,
-                "expected_outcome": "Gathered necessary information through conversation.",
-                "fallback_steps": ["Review task description for missing details"],
-                "validation_criteria": [
-                    "Conversation logs are comprehensive and relevant."
-                ],
-            },
-            # Add more fallback steps as needed
-        }
-
-        fallback_estimation = {
-            "estimated_steps": [
-                fallback_steps.get("conversation", fallback_steps["conversation"])
-            ],
-            "critical_path_steps": [],
-            "additional_steps": [],
-            "estimation_model_version": "fallback",
-            "last_updated": datetime.now(timezone.utc),
-        }
-
-        if reason:
-            fallback_estimation["fallback_reason"] = reason
-
-        # logger.debug(f"Fallback Step Estimation: {pformat(fallback_estimation)}")
-        return fallback_estimation
-
-    def _process_new_task(self, task: Dict):
-        # logger.debug(f"_process_new_task: {pformat(task)}")
         try:
-            # Generate step estimates
-            step_estimation = self._generate_step_estimates(task)
-            # logger.debug(f"Step Estimation: {pformat(step_estimation)}")
-
-            # Create initial workflow state
-            initial_workflow_state = {
-                "completed_steps": [],
-                "remaining_steps": step_estimation["estimated_steps"],
-                "current_agent": None,
-            }
-
-            # Just update the essential fields for task processing
-            task_update = {
-                "workflow_state": initial_workflow_state,
-                "status": TaskState.PENDING_NEXT_STEP.value,
-            }
-
-            # Update task in database
-            self.tasks_collection.update_one(
-                {"_id": task["_id"]}, {"$set": task_update}
+            messages = self.prompts.format_step_generation(
+                task_description=f"""Original task: {task.get('description', '')}
+                Failed step: {step_result.step_description}
+                Error: {step_result.error}
+                Generate additional steps to resolve the issue.""",
+                capabilities_list=self._get_agent_capabilities(),
             )
 
-            # Handle additional steps if needed
-            additional_steps = step_estimation.get("additional_steps", [])
+            # Call OpenAI API with structured response
+            estimation = self.call_openai_api_structured(
+                messages=messages,
+                response_model=StepEstimationResponse,
+                model="gpt-4o-mini",
+            )
 
-            logger.debug(f"Additional steps: {additional_steps}")
-            if additional_steps:
-                for step in additional_steps:
-                    self.workflow_manager.add_step(str(task["_id"]), step)
+            additional_steps = []
+            for idx, estimate in enumerate(estimation.estimated_steps):
+                step = {
+                    "step_number": len(task.get("steps", [])) + idx + 1,
+                    "step_description": estimate.step_description,
+                    "state": TaskState.CREATED.value,
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+                additional_steps.append(step)
+
+            return additional_steps
 
         except Exception as e:
-            logger.error(f"Error in processing new task: {e}")
-            self._handle_task_failure(task, None, str(e))
+            logger.error(f"Error generating additional steps: {e}")
+            return []
+
+    def _evaluate_step_result_with_llm(
+        self, step_description: str, step_result: str
+    ) -> bool:
+        """Evaluate step results using LLM"""
+        try:
+            # Use new prompt system
+            messages = self.prompts.format_step_evaluation(
+                step_description=step_description, step_result=step_result
+            )
+
+            # Call OpenAI API with structured response
+            evaluation = self.call_openai_api_structured(
+                messages=messages,
+                response_model=TaskEvaluationResponse,
+                model="gpt-4o-mini",
+            )
+
+            return evaluation.success
+
+        except Exception as e:
+            logger.error(f"Error evaluating step result with LLM: {e}")
+            return False
 
     def _process_task_with_inference(self, task: Dict):
-        """Process task with appropriate agent selection and workflow state management"""
+        """Process task with dynamic step expansion based on LLM predictions"""
 
         logger.debug("_process_task_with_inference")
         try:
             task_description = task.get("description", "")
+
             task_id = str(task["_id"])
             if not task_description:
                 logger.error(f"Task {task_id} has no description.")
                 self._request_human_intervention(task, "Task missing description.")
                 return
 
-            # Get current step info from workflow manager
-            current_step = self.workflow_manager.get_current_step(task_id)
+            # Get the steps from the task
+            steps = task.get("steps", [])
+            # Find the current step index
+            current_step_index = task.get("current_step_index")
 
-            # logger.debug(
-            # f"Current step in _process_task_with_inference: {pformat(current_step)}"
-            # )
+            previous_steps = (
+                steps[:current_step_index]
+                if current_step_index and current_step_index > 0
+                else []
+            )
+            previous_step_results = "\n".join(
+                [step.get("result", "") for step in previous_steps]
+            )
 
-            if not current_step:
-                logger.info(f"No remaining steps for task {task_id}")
-                return
+            task["previous_step_results"] = previous_step_results
 
-            # Assign task to suitable agent
-            step_description = current_step.get("step_description", None)
+            if not steps:
+                # No steps have been generated yet, generate steps
+                logger.info(f"No steps found for task {task_id}, generating steps.")
+                steps = self._generate_steps_from_description(task_description)
+                if not steps:
+                    logger.error(f"Failed to generate steps for task {task_id}")
+                    self._request_human_intervention(task, "Failed to generate steps.")
+                    return
 
-            if step_description is None or step_description == "":
+                # Update task in database with generated steps
+                task["steps"] = steps
+                task["current_step_index"] = None
+                self.tasks_collection.update_one(
+                    {"_id": task["_id"]},
+                    {"$set": {"steps": steps, "current_step_index": None}},
+                )
+
+            # If current_step_index is None, find the next pending step
+            if current_step_index is None:
+                for idx, step in enumerate(steps):
+                    if step.get("state") == TaskState.CREATED.value:
+                        current_step_index = idx
+                        break
+                else:
+                    # No pending steps, task is completed
+                    logger.info(f"All steps completed for task {task_id}")
+                    self._perform_final_evaluation(task)
+                    return
+
+            # Get the current step
+            current_step = steps[current_step_index]
+            step_description = current_step.get("step_description", "")
+            if not step_description:
                 logger.error(f"No step description found for task {task_id}")
                 self._request_human_intervention(task, "No step description found.")
                 return
 
-            agent_id = self.scheduler.assign_task(task_id, step_description)
+            # Assign task to suitable agent
+            agent_details = self._get_agent_details()
+            messages = self.prompts.format_agent_selection(
+                step_description=step_description, agent_details=agent_details
+            )
 
-            logger.debug(
-                f"Agent ID for task {task_id} at step {current_step['step_description']}: {agent_id}"
+            agent_analysis = self.call_openai_api_structured(
+                messages=messages,
+                response_model=AgentSelectionAnalysis,
+                model="gpt-4o-mini",
+            )
+
+            agent_id = (
+                agent_analysis.agent_id
+                if agent_analysis.overall_match_score > 0
+                else None
             )
 
             if agent_id:
                 logger.info(f"Task {task_id} assigned to agent {agent_id}")
+                # Update current agent and step state in task
+                steps[current_step_index]["state"] = TaskState.IN_PROGRESS.value
+                steps[current_step_index]["updated_at"] = datetime.now(timezone.utc)
+                task["current_agent"] = agent_id
+                task["current_step_index"] = current_step_index
+                task["steps"] = steps
+                task["status"] = TaskState.IN_PROGRESS.value
+                task["updated_at"] = datetime.now(timezone.utc)
+
+                # Update task in database
+                self.tasks_collection.update_one(
+                    {"_id": ObjectId(task["_id"])},
+                    {
+                        "$set": {
+                            "current_agent": agent_id,
+                            "current_step_index": current_step_index,
+                            "steps": steps,
+                            "status": TaskState.IN_PROGRESS.value,
+                            "updated_at": datetime.now(timezone.utc),
+                        }
+                    },
+                )
+                # Send updated task to agent
                 self._send_task_to_agent_with_retry(agent_id, task)
             else:
                 logger.warning("No suitable agents found for step description")
-                self._handle_no_available_agents(task, current_step["step_description"])
 
         except Exception as e:
             logger.error(f"Error in task processing: {e}")
             self._handle_task_failure(task, None, str(e))
 
-    def _handle_successful_completion(self, task: Dict, evaluation: Dict):
-        """Delegate successful completion handling to workflow manager"""
-        step_result = StepResult(
-            step_description=task.get("description", "unknown"),
-            success=True,
-            result=evaluation.get("reasoning"),
-            error=None,
-            execution_time=None,
-            metadata=evaluation,
-        )
-
-        success = self.workflow_manager.update_workflow_state(
-            str(task["_id"]), step_result, task.get("current_agent")
-        )
-
-        if not success:
-            logger.error(f"Failed to update workflow state for task {task['_id']}")
-            self._handle_task_failure(task, None, "Failed to update workflow state")
-
-    def _handle_failed_completion(self, task: Dict, evaluation: Dict):
-        """Delegate failed completion handling to workflow manager"""
-        step_result = StepResult(
-            step_description=task.get("description", "unknown"),
-            success=False,
-            result=None,
-            error=evaluation.get("reasoning"),
-            execution_time=None,
-            metadata=evaluation,
-        )
-
-        success = self.workflow_manager.update_workflow_state(
-            str(task["_id"]), step_result, task.get("current_agent")
-        )
-
-        if not success:
-            logger.error(f"Failed to update workflow state for task {task['_id']}")
-            self._request_human_intervention(task, "Failed to update workflow state")
-
-    def aggregate_results(self, task_id: str) -> str:
+    def _perform_final_evaluation(self, task: Dict):
         """
-        Aggregate and synthesize results from all completed steps into a final answer.
-        Combines aggregation and synthesis into a single function for better efficiency.
-
-        Args:
-            task_id (str): The ID of the task to aggregate results for
-
-        Returns:
-            str: Synthesized final answer combining all step outcomes
+        Perform a final evaluation of the task based on the evaluation_criteria using the LLM.
         """
-        task = self.tasks_collection.find_one({"_id": ObjectId(task_id)})
-        if not task:
-            logger.error(f"Task {task_id} not found for aggregation.")
-            return "Aggregation failed: Task not found."
-
-        completed_steps = task.get("workflow_state", {}).get("completed_steps", [])
-        if not completed_steps:
-            return "No completed steps found for synthesis."
-
-        # Gather context and outcomes
-        step_outcomes = []
-        for step in completed_steps:
-            outcome = step.get("actual_outcome", "")
-            context = {
-                "step_number": step.get("step_number"),
-                "evaluation": step.get("evaluation", {}),
-                "completion_time": step.get("completion_time"),
-            }
-            if outcome:
-                step_outcomes.append(f"Step {context['step_number']}: {outcome}")
-
-        aggregated_text = "\n\n".join(step_outcomes)
-
         try:
-            # Create a structured prompt for synthesis
-            synthesis_prompt = f"""
-            Synthesize the following step outcomes into a coherent final answer.
-            Include key findings and ensure all important details are preserved.
-            
-            Original Task Description: {task.get('description', 'No description available')}
-            
-            Step Outcomes:
-            {aggregated_text}
-            
-            Please provide a clear, concise synthesis that:
-            1. Summarizes the main results
-            2. Highlights key findings
-            3. Maintains important technical details
-            4. Presents information in a logical order
-            """
+            task_id = str(task["_id"])
+            evaluation_criteria = task.get("evaluation_criteria")
+            if not evaluation_criteria:
+                # No evaluation criteria set, mark task as completed
+                self.tasks_collection.update_one(
+                    {"_id": task["_id"]},
+                    {"$set": {"status": TaskState.COMPLETED_WORKFLOW.value}},
+                )
+                logger.info(
+                    f"Task {task_id} completed successfully without evaluation criteria."
+                )
+                return
 
-            # Get synthesis using OpenAI
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a precise assistant that synthesizes technical results clearly and accurately.",
-                    },
-                    {"role": "user", "content": synthesis_prompt},
-                ],
-                temperature=0.3,  # Lower temperature for more consistent output
-                max_tokens=8192,
+            # Aggregate results from all successful steps
+            steps = task.get("steps", [])
+            successful_steps = [
+                step
+                for step in steps
+                if step.get("state") == TaskState.COMPLETED_STEP.value
+            ]
+            combined_results = "\n".join(
+                [step.get("result", "") for step in successful_steps]
             )
 
-            synthesized_result = response.choices[0].message.content.strip()
-
-            # Update both 'final_synthesis' and 'result' fields
-            self.tasks_collection.update_one(
-                {"_id": ObjectId(task_id)},
-                {
-                    "$set": {
-                        "final_synthesis": {
-                            "content": synthesized_result,
-                            "generated_at": datetime.now(timezone.utc),
-                            "source_steps": len(completed_steps),
-                        },
-                        "result": synthesized_result,  # Add this line
-                    }
-                },
+            # Use LLM to evaluate combined results against evaluation criteria
+            evaluation_success = self._evaluate_task_result_with_llm(
+                evaluation_criteria, combined_results
             )
 
-            return synthesized_result
+            if evaluation_success:
+                # Mark task as completed successfully
+                self.tasks_collection.update_one(
+                    {"_id": task["_id"]},
+                    {"$set": {"status": TaskState.COMPLETED_WORKFLOW.value}},
+                )
+                logger.info(
+                    f"Task {task_id} passed final evaluation and completed successfully."
+                )
+            else:
+                # Mark task as failed
+                self.tasks_collection.update_one(
+                    {"_id": task["_id"]}, {"$set": {"status": TaskState.FAILED.value}}
+                )
+                logger.info(f"Task {task_id} failed final evaluation.")
+                # Optionally, request human intervention
+                self._request_human_intervention(
+                    task, "Task failed final evaluation against evaluation criteria."
+                )
 
         except Exception as e:
-            logger.error(f"Error in result synthesis for task {task_id}: {e}")
-            # Fallback to returning aggregated text if synthesis fails
-            return f"Synthesis failed. Raw aggregated results:\n\n{aggregated_text}"
+            logger.error(f"Error during final task evaluation: {e}")
+            self._handle_task_failure(task, None, str(e))
 
-    # works as expected
-    def _get_task_state(self, task: Dict) -> Dict:
-        """Get comprehensive current state of the task"""
-        return {
-            "status": task.get("status"),
-            "current_step": task.get("current_step"),
-            "completed_steps": task.get("workflow_state", {}).get(
-                "completed_steps", []
-            ),
-            "remaining_steps": task.get("workflow_state", {}).get(
-                "remaining_steps", []
-            ),
-            "last_action": self.task_history_collection.find_one(
-                {"task_id": ObjectId(task["_id"])}, sort=[("timestamp", -1)]
-            ),
-        }
+    def _evaluate_task_result_with_llm(
+        self, evaluation_criteria: str, combined_results: str
+    ) -> bool:
+        """Evaluate final task results using LLM"""
+        try:
+            # Use new prompt system
+            messages = self.prompts.format_final_evaluation(
+                task_description="",  # Need to pass task description from context
+                evaluation_criteria=evaluation_criteria,
+                step_results=combined_results,
+            )
 
-    def _handle_no_available_agents(self, task: Dict, step_description: str):
-        """Handle situation when no suitable agents are available"""
+            # Call OpenAI API with structured response
+            evaluation = self.call_openai_api_structured(
+                messages=messages,
+                response_model=TaskEvaluationResponse,
+                model="gpt-4o-mini",
+            )
+
+            return evaluation.success
+
+        except Exception as e:
+            logger.error(f"Error evaluating task result with LLM: {e}")
+            return False
+
+    def _handle_successful_completion(self, task: Dict, evaluation: Dict):
+        """Handle successful completion of a step"""
+        task_id = str(task["_id"])
+        current_step_index = task.get("current_step_index")
+        if current_step_index is None:
+            logger.error(f"No current_step_index for task {task_id}")
+            return
+
+        steps = task.get("steps", [])
+        if current_step_index >= len(steps):
+            logger.error(f"Invalid current_step_index for task {task_id}")
+            return
+
+        current_step = steps[current_step_index]
+        # Update the step with the result
+        current_step["state"] = TaskState.COMPLETED_STEP.value
+        current_step["result"] = evaluation.get("result", "")
+        current_step["updated_at"] = datetime.now(timezone.utc)
+
+        # Clear current_step_index
         self.tasks_collection.update_one(
-            {"_id": ObjectId(task["_id"])},
+            {"_id": task["_id"]},
             {
                 "$set": {
-                    "status": TaskState.AWAITING_HUMAN.value,
+                    "steps": steps,
+                    "current_step_index": None,
+                    "current_agent": None,
                     "updated_at": datetime.now(timezone.utc),
-                    "notes": f"No available agents for step_type: {step_description}",
-                    "retry_scheduled": datetime.now(timezone.utc)
-                    + timedelta(minutes=self.retry_delay),
                 }
             },
         )
+        logger.info(f"Step {current_step_index} completed for task {task_id}")
+
+    def _handle_failed_completion(self, task: Dict, evaluation: Dict):
+        """Handle failed completion of a step and generate additional steps if necessary"""
+        task_id = str(task["_id"])
+        current_step_index = task.get("current_step_index")
+        if current_step_index is None:
+            logger.error(f"No current_step_index for task {task_id}")
+            return
+
+        steps = task.get("steps", [])
+        if current_step_index >= len(steps):
+            logger.error(f"Invalid current_step_index for task {task_id}")
+            return
+
+        current_step = steps[current_step_index]
+        # Update the step with the error
+        current_step["state"] = TaskState.FAILED.value
+        current_step["error"] = evaluation.get("error", "")
+        current_step["updated_at"] = datetime.now(timezone.utc)
+
+        # Clear current_step_index
+        self.tasks_collection.update_one(
+            {"_id": task["_id"]},
+            {
+                "$set": {
+                    "steps": steps,
+                    "current_step_index": None,
+                    "current_agent": None,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+        )
+        logger.info(f"Step {current_step_index} failed for task {task_id}")
+
+        # Generate additional steps to handle the failure
+        logger.info(f"Generating additional steps for task {task_id} due to failure.")
+        step_result = StepResult(
+            step_description=current_step.get("step_description", ""),
+            success=False,
+            result=None,
+            error=evaluation.get("error", ""),
+            execution_time=None,
+            metadata=evaluation,
+        )
+        additional_steps = self._generate_additional_steps(task, step_result)
+
+        if additional_steps:
+            logger.info(f"Adding additional steps to task {task_id}")
+            steps.extend(additional_steps)
+            self.tasks_collection.update_one(
+                {"_id": task["_id"]}, {"$set": {"steps": steps}}
+            )
+        else:
+            logger.warning(f"No additional steps generated for task {task_id}")
+            self._request_human_intervention(
+                task, "No additional steps generated to handle failure"
+            )
 
     def _send_task_to_agent_with_retry(
         self, agent_id: str, task: Dict, max_retries: int = 3
@@ -486,42 +599,6 @@ class BOSS:
             # Revert the task assignment
             # self._revert_task_assignment(task, agent_id)
             return False
-
-    def _revert_task_assignment(self, task: Dict, agent_id: str):
-        """Revert task assignment if sending to agent fails"""
-        try:
-            logger.info(
-                f"Reverting assignment of task {task['_id']} from agent {agent_id}"
-            )
-
-            # Update task status back to pending
-            self.tasks_collection.update_one(
-                {"_id": ObjectId(task["_id"])},
-                {
-                    "$set": {
-                        "status": TaskState.PENDING_NEXT_STEP.value,
-                        "updated_at": datetime.now(timezone.utc),
-                    },
-                    "$unset": {"agent_id": "", "assignment_details": ""},
-                },
-            )
-
-            # Update agent load
-            self.agents_collection.update_one(
-                {"agent_id": agent_id},
-                {"$pull": {"active_tasks": {"task_id": ObjectId(task["_id"])}}},
-            )
-
-            # Record in history
-            self._record_task_history(
-                task["_id"],
-                "ASSIGNMENT_REVERTED",
-                agent_id,
-                {"reason": "Failed to send task to agent"},
-            )
-
-        except Exception as e:
-            logger.error(f"Error reverting task assignment: {e}")
 
     # works as expected
     def _record_task_history(
@@ -553,7 +630,6 @@ class BOSS:
                     "human_intervention_request": {
                         "reason": reason,
                         "timestamp": datetime.now(timezone.utc),
-                        "context": self._get_task_state(task),
                     },
                 }
             },
@@ -588,157 +664,24 @@ class BOSS:
         except Exception as e:
             logger.error(f"Error handling invalid task: {e}")
 
-    def _handle_stale_task(self, task: Dict):
-        """Handle tasks that have been in the system too long"""
-        try:
-            self.tasks_collection.update_one(
-                {"_id": task["_id"]},
-                {
-                    "$set": {
-                        "status": TaskState.AWAITING_HUMAN.value,
-                        "updated_at": datetime.now(timezone.utc),
-                        "stale_task": {
-                            "detected_at": datetime.now(timezone.utc),
-                            "age_hours": (
-                                datetime.now(timezone.utc)
-                                - ensure_timezone_aware(task["created_at"])
-                            ).total_seconds()
-                            / 3600,
-                        },
-                    }
-                },
-            )
-
-            self._record_task_history(
-                task["_id"],
-                "MARKED_STALE",
-                None,
-                {
-                    "age_hours": (
-                        datetime.now(timezone.utc)
-                        - ensure_timezone_aware(task["created_at"])
-                    ).total_seconds()
-                    / 3600
-                },
-            )
-
-            self._request_human_intervention(task, "Task has become stale")
-        except Exception as e:
-            logger.error(f"Error handling stale task: {e}")
-
     def check_tasks(self):
-        """
-        Main task processing loop that handles different task states and prioritizes processing.
-        Implements task validation, prioritization, parallel processing, and adaptive scheduling.
-        """
-        logger.info("Starting task processing loop...")
-
-        while not self.shutdown_event.is_set():
-            try:
-                # Process tasks in priority order for each state
-                for task_state in [
-                    TaskState.CREATED.value,
-                    TaskState.PENDING_NEXT_STEP.value,
-                    TaskState.COMPLETED_WORKFLOW.value,
-                ]:
-                    # Fixed query structure
-                    if self.shutdown_event.is_set():
-                        break
-
-                    query = {"status": task_state}
-
-                    tasks = list(
-                        self.tasks_collection.find(query).sort([("created_at", 1)])
-                    )
-
-                    # logger.debug(
-                    #     f"check_tasks: Processing tasks: {pformat(tasks)} for state: {task_state}"
-                    # )
-
-                    for task in tasks:
-                        # logger.debug(f"task: {pformat(task)}")
-
-                        if not self.running:
-                            return
-
-                        try:
-                            # Process based on task state
-
-                            if task_state == TaskState.CREATED.value:
-                                # logger.debug(
-                                #     f"task state is: {task_state} and TaskState is {TaskState.CREATED.value}"
-                                # )
-
-                                logger.debug("Task is just created")
-                                self._process_new_task(task)
-                            elif task_state == TaskState.PENDING_NEXT_STEP.value:
-                                # Check if task has necessary step information
-                                if not task.get("workflow_state", {}).get(
-                                    "remaining_steps"
-                                ):
-                                    logger.error(
-                                        f"Task {task['_id']} missing step information"
-                                    )
-                                    self._request_human_intervention(
-                                        task, "Missing step information"
-                                    )
-                                    continue
-                                self._process_task_with_inference(task)
-
-                        except Exception as e:
-                            logger.error(
-                                f"Error processing task {task['_id']}: {e}\n{traceback.format_exc()}"
-                            )
-                            self._handle_task_failure(task, None, str(e))
-                            continue
-
-            except Exception as e:
-                if not self.shutdown_event.is_set():
-                    logger.error(f"Error in task processing loop: {e}")
-                    continue
-                else:
-                    logger.info("Task processing loop shutting down...")
-                    break
+        while self.running:
+            tasks = list(
+                self.tasks_collection.find(
+                    {
+                        "status": {
+                            "$in": [
+                                TaskState.CREATED.value,
+                            ]
+                        }
+                    }
+                )
+            )
+            for task in tasks:
+                self._process_task_with_inference(task)
 
             self.shutdown_event.wait(timeout=self.check_interval)
-
-        logger.info("Task processing loop ended")
-
-    def _evaluate_final_task(self, task: Dict):
-        """Perform final evaluation of the task after all steps are completed."""
-        try:
-            logger.info(f"Performing final evaluation for task {task['_id']}")
-
-            # Aggregate results from all completed steps
-            final_result = self.workflow_manager.aggregate_results(task["_id"])
-
-            # Update task with final result
-            self.tasks_collection.update_one(
-                {"_id": ObjectId(task["_id"])},
-                {
-                    "$set": {
-                        "final_evaluation": {
-                            "result": final_result,
-                            "evaluated_at": datetime.now(timezone.utc),
-                        },
-                        "status": TaskState.FINAL_COMPLETION.value,
-                        "updated_at": datetime.now(timezone.utc),
-                    }
-                },
-            )
-
-            # Record in task history
-            self.workflow_manager._record_task_history(
-                task_id=str(task["_id"]),
-                action="TASK_COMPLETED",
-                details={"final_result": final_result},
-            )
-
-            logger.info(f"Final evaluation completed for task {task['_id']}")
-
-        except Exception as e:
-            logger.error(f"Error in final task evaluation for {task['_id']}: {e}")
-            self._handle_task_failure(task, None, f"Final evaluation failed: {str(e)}")
+            time.sleep(self.check_interval)
 
     def _create_daemon_thread(self, target, name):
         thread = threading.Thread(target=target, name=name, daemon=True)
@@ -747,12 +690,15 @@ class BOSS:
 
     # works as expected
     def start(self):
-        """Start the BOSS service with improved thread management"""
+        """Start the BOSS service with enhanced thread management"""
         self.running = True
         self.shutdown_event.clear()
 
         # Create threads using the new helper method
         self.task_thread = self._create_daemon_thread(self.check_tasks, "TaskProcessor")
+        self.result_thread = self._create_daemon_thread(
+            self.consume_agent_results, "ResultConsumer"
+        )
         self.monitor_thread = self._create_daemon_thread(
             self._monitor_system_health, "SystemMonitor"
         )
@@ -765,72 +711,21 @@ class BOSS:
 
     def __del__(self):
         """Ensure proper cleanup on object destruction"""
-        if not self.is_shutting_down:
-            try:
-                self.stop()
-            except Exception as e:
-                logger.error(f"Error during cleanup in __del__: {e}")
+        try:
+            self.stop()
+        except Exception as e:
+            logger.error(f"Error during cleanup in __del__: {e}")
 
     # works as expected
     def stop(self):
-        """Stop the BOSS service gracefully with improved shutdown handling"""
-        if self.is_shutting_down:
-            logger.warning("Shutdown already in progress, skipping...")
-            return
-
-        self.is_shutting_down = True
-        logger.info("Initiating BOSS service shutdown...")
         self.running = False
         self.shutdown_event.set()
-
-        def cleanup_resources():
-            if hasattr(self, "producer") and self.producer:
-                try:
-                    logger.info("Closing Kafka producer...")
-                    self.producer.flush(timeout=5)
-                    self.producer.close(timeout=5)
-                except Exception as e:
-                    logger.error(f"Error closing Kafka producer: {e}")
-
-            if hasattr(self, "client") and self.client:
-                try:
-                    logger.info("Closing MongoDB client...")
-                    self.client.close()
-                except Exception as e:
-                    logger.error(f"Error closing MongoDB client: {e}")
-
-        try:
-            # Set timeout for thread completion
-            thread_timeout = 10  # seconds
-
-            # Stop task processing threads
-            if self.task_thread and self.task_thread.is_alive():
-                logger.info("Waiting for task thread to complete...")
-                self.task_thread.join(timeout=thread_timeout)
-                if self.task_thread.is_alive():
-                    logger.warning("Task thread did not terminate within timeout")
-
-            if self.monitor_thread and self.monitor_thread.is_alive():
-                logger.info("Waiting for monitor thread to complete...")
-                self.monitor_thread.join(timeout=thread_timeout)
-                if self.monitor_thread.is_alive():
-                    logger.warning("Monitor thread did not terminate within timeout")
-
-            # Stop all remaining threads
-            for thread in self.threads:
-                if thread.is_alive():
-                    logger.info(f"Waiting for thread {thread.name} to complete...")
-                    thread.join(timeout=thread_timeout)
-                    if thread.is_alive():
-                        logger.warning(
-                            f"Thread {thread.name} did not terminate within timeout"
-                        )
-
-        except Exception as e:
-            logger.error(f"Error during thread shutdown: {e}")
-        finally:
-            cleanup_resources()
-            logger.info("BOSS service stopped")
+        for thread in self.threads:
+            if thread.is_alive():
+                thread.join()
+        self.client.close()
+        self.producer.close()
+        logger.info("Boss stopped.")
 
     # works as expected
     def _monitor_system_health(self):
@@ -874,33 +769,37 @@ class BOSS:
 
     # Works as expected
     def call_openai_api_structured(
-        self, prompt: str, response_model: type[BaseModel]
+        self,
+        messages: List[Dict[str, str]],
+        response_model: type[BaseModel],
+        model: str = "gpt-4o-mini",
     ) -> BaseModel:
         """
         Make a structured call to OpenAI API with Pydantic model parsing
-
-        Args:
-            prompt (str): The prompt to send to OpenAI
-            response_model (type[BaseModel]): The Pydantic model class to parse the response into
-
-        Returns:
-            BaseModel: Instance of the provided response_model containing the parsed response
         """
         try:
+            # Validate message format
+            if not isinstance(messages, list):
+                raise ValueError("Messages must be a list")
+
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    raise ValueError("Each message must be a dict")
+                if "role" not in msg or "content" not in msg:
+                    raise ValueError("Messages must have 'role' and 'content' keys")
+
+            # Make API call
             completion = self.openai_client.beta.chat.completions.parse(
-                model="gpt-4o",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an assistant that provides structured responses.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                response_format=response_model,
+                model=model,
+                messages=messages,
                 temperature=0,
+                response_format=response_model,
+                max_tokens=2000,
             )
 
-            return completion.choices[0].message.parsed
+            # Parse response into model
+            response_text = completion.choices[0].message.content
+            return response_model.model_validate_json(response_text)
 
         except Exception as e:
             logger.error(f"Error in structured OpenAI API call: {e}")
@@ -921,52 +820,63 @@ class BOSS:
             "retry_count": retry_count,
         }
 
-        if retry_count < self.max_retries:
-            # Attempt retry with exponential backoff
-            next_retry_delay = self.retry_delay * (2**retry_count)
-            retry_time = datetime.now(timezone.utc) + timedelta(
-                seconds=next_retry_delay
-            )
-
-            self.tasks_collection.update_one(
-                {"_id": ObjectId(task["_id"])},
-                {
-                    "$set": {
-                        "status": TaskState.CREATED.value,
-                        "retry_count": retry_count + 1,
-                        "next_retry_time": retry_time,
-                        "updated_at": datetime.now(timezone.utc),
-                    },
-                    "$push": {"failure_history": failure_details},
+        # Mark as failed and requiring human intervention
+        self.tasks_collection.update_one(
+            {"_id": ObjectId(task["_id"])},
+            {
+                "$set": {
+                    "status": TaskState.FAILED.value,
+                    "final_failure_details": failure_details,
+                    "updated_at": datetime.now(timezone.utc),
                 },
-            )
+                "$push": {"failure_history": failure_details},
+            },
+        )
 
-            # Record in history
-            self._record_task_history(
-                task["_id"], "FAILURE_WITH_RETRY", None, failure_details
-            )
+        # Request human intervention
+        self._request_human_intervention(
+            task,
+            f"Final error: {error_message}",
+        )
 
-        else:
-            # Mark as failed and requiring human intervention
-            self.tasks_collection.update_one(
-                {"_id": ObjectId(task["_id"])},
-                {
-                    "$set": {
-                        "status": TaskState.FAILED.value,
-                        "final_failure_details": failure_details,
-                        "updated_at": datetime.now(timezone.utc),
-                    },
-                    "$push": {"failure_history": failure_details},
-                },
+    def _get_agent_capabilities(self) -> str:
+        """Get formatted string of agent capabilities"""
+        try:
+            active_agents = list(self.agents_collection.find({"status": "active"}))
+            return ", ".join(
+                [
+                    f"{agent['agent_id']}: {', '.join(agent['capabilities'])}"
+                    for agent in active_agents
+                ]
             )
+        except Exception as e:
+            logger.error(f"Error getting agent capabilities: {e}")
+            return ""
 
-            # Record in history
-            self._record_task_history(
-                task["_id"], "FINAL_FAILURE", None, failure_details
-            )
+    def _get_agent_details(self) -> str:
+        """Get detailed agent information including workload"""
+        try:
+            active_agents = list(self.agents_collection.find({"status": "active"}))
+            agent_details = []
+            for agent in active_agents:
+                # Get current workload
+                current_tasks = self.tasks_collection.count_documents(
+                    {
+                        "current_agent": agent["agent_id"],
+                        "status": TaskState.IN_PROGRESS.value,
+                    }
+                )
 
-            # Request human intervention
-            self._request_human_intervention(
-                task,
-                f"Max retries ({self.max_retries}) exceeded. Final error: {error_message}",
-            )
+                details = (
+                    f"Agent: {agent['agent_id']}\n"
+                    f"Capabilities: {', '.join(agent['capabilities'])}\n"
+                    f"Current workload: {current_tasks} tasks\n"
+                    f"Status: {agent['status']}\n"
+                    "---"
+                )
+                agent_details.append(details)
+
+            return "\n".join(agent_details)
+        except Exception as e:
+            logger.error(f"Error getting agent details: {e}")
+            return ""

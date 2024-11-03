@@ -91,18 +91,37 @@ class TaskComplexityResponse(BaseModel):
 
 
 class StepEstimate(BaseModel):
-    step_description: str
-    estimated_duration_minutes: int
-    confidence_score: float = Field(
-        ..., description="Confidence score as a float between 0.0 and 1.0"
+    """Model for individual step estimates"""
+
+    step_description: str = Field(
+        ..., description="Description of what needs to be done"
     )
-    expected_outcome: str
+    estimated_duration_minutes: int = Field(
+        ..., description="Estimated time in minutes"
+    )
+    confidence_score: float = Field(..., description="Confidence score between 0 and 1")
+    expected_outcome: str = Field(..., description="Expected result of the step")
+    assigned_agent: Optional[str] = Field(
+        None, description="Suggested agent for this step"
+    )
+    is_critical: bool = Field(
+        description="Whether this step is on the critical path - True or False"
+    )
 
 
 class StepEstimationResponse(BaseModel):
-    estimated_steps: List[StepEstimate]
-    critical_path_steps: List[str]
-    additional_steps: Optional[List[StepEstimate]]
+    """Response model for step estimation"""
+
+    estimated_steps: List[StepEstimate] = Field(
+        default_factory=list, description="List of estimated steps"
+    )
+    critical_path_steps: List[str] = Field(
+        default_factory=list,
+        description="List of step descriptions that are on the critical path",
+    )
+    additional_steps: Optional[List[StepEstimate]] = Field(
+        default=None, description="Optional additional steps that might be needed"
+    )
 
 
 @dataclass

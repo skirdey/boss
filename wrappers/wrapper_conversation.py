@@ -1,7 +1,7 @@
-from bson import ObjectId
-from dotenv import load_dotenv
+import os
 
-from models import StepResult, TaskState
+from anthropic import Anthropic
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
-from pymongo import MongoClient
 
 from wrappers.wrapper_agent import WrapperAgent
 
@@ -37,15 +36,12 @@ class WrapperConversation(WrapperAgent):
     def __init__(
         self,
         agent_id="agent_conversation",
-        db_uri="mongodb://localhost:27017/",
         kafka_bootstrap_servers="localhost:9092",
     ):
-        super().__init__(agent_id, db_uri, kafka_bootstrap_servers)
+        super().__init__(agent_id, kafka_bootstrap_servers)
         self.agent_id = agent_id
-        self.client = MongoClient(db_uri)
-        self.db = self.client["agent_db"]
-        self.collection = self.db["tasks"]
-        self.task_history = self.db["task_history"]
+
+        self.anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
     def process_message(self, messages: List[Dict]) -> ConversationResult:
         """Process a conversation message using Claude with improved error handling and metrics"""
@@ -100,12 +96,20 @@ class WrapperConversation(WrapperAgent):
             return {"success": False, "note": "Invalid task format"}
 
         try:
-            # Fetch current workflow state
-            workflow_state = task.get("workflow_state", {})
-            remaining_steps = workflow_state.get("remaining_steps", [])
-            current_step_index = int(task.get("current_step", 0))
+            # Fetch steps and current step index
+            steps = task.get("steps", [])
+            current_step_index = task.get("current_step_index", 0)
 
-            if current_step_index >= len(remaining_steps):
+            previous_steps = steps[:current_step_index]
+            previous_step_results = "\n".join(
+                [
+                    f"Step {i+1}: {step.get('result', '')}"
+                    for i, step in enumerate(previous_steps)
+                    if step.get("result")
+                ]
+            )
+
+            if current_step_index is None or current_step_index >= len(steps):
                 self.task_logger.info("All steps have been completed.")
                 return {
                     "task_id": str(task["_id"]),
@@ -115,34 +119,41 @@ class WrapperConversation(WrapperAgent):
                 }
 
             # Get the current step
-            current_step = remaining_steps[current_step_index]
-            step_description = current_step["step_description"]
+            current_step = steps[current_step_index]
+            step_description = current_step.get("step_description", "")
 
             self.task_logger.info(
                 f"Processing step {current_step_index + 1}: {step_description}"
             )
 
+            if previous_step_results:
+                step_description = (
+                    f"{previous_step_results}\n\nCurrent step:\n{step_description}"
+                )
+
+                self.task_logger.info(previous_step_results)
+
             # Process the step (e.g., as a conversation step)
             conversation_result = self.process_message(
-                [{"role": "user", "content": step_description}],
+                [{"role": "user", "content": step_description}]
             )
 
-            # self.task_logger.info(f"Conversation result: {conversation_result}")
-
             # Create step result for workflow state manager
-            step_result = StepResult(
-                step_description=step_description,
-                success=conversation_result.success,
-                result=conversation_result.response
+            step_result = {
+                "task_id": str(task["_id"]),
+                "agent_id": self.agent_id,
+                "step_description": step_description,
+                "success": conversation_result.success,
+                "result": conversation_result.response
                 if conversation_result.success
                 else None,
-                error=conversation_result.error
+                "error": conversation_result.error
                 if not conversation_result.success
                 else None,
-                execution_time=conversation_result.metrics.get(
+                "execution_time": conversation_result.metrics.get(
                     "processing_time_seconds"
                 ),
-                metadata={
+                "metadata": {
                     "model": conversation_result.model,
                     "metrics": conversation_result.metrics,
                     "timestamp": conversation_result.timestamp.isoformat(),
@@ -151,63 +162,16 @@ class WrapperConversation(WrapperAgent):
                     ],
                     "task_context": task.get("context", ""),
                 },
-            )
-
-            # Update workflow state
-            workflow_update_success = self.workflow_state_manager.update_workflow_state(
-                task_id=str(task["_id"]),
-                step_result=step_result,
-                agent_id=self.agent_id,
-            )
-
-            if not workflow_update_success:
-                logger.error(f"Failed to update workflow state for task {task['_id']}")
-                return {
-                    "task_id": str(task["_id"]),
-                    "error": "Failed to update workflow state.",
-                    "success": False,
-                }
-
-            # If there are more steps, set status to PENDING_NEXT_STEP
-            if current_step_index + 1 < len(remaining_steps):
-                new_status = TaskState.PENDING_NEXT_STEP
-            else:
-                new_status = TaskState.COMPLETED_WORKFLOW
-
-            self.collection.update_one(
-                {"_id": task["_id"]},
-                {
-                    "$set": {
-                        "status": new_status,
-                        "updated_at": datetime.now(timezone.utc),
-                    }
-                },
-            )
-
-            # If the workflow is completed, perform final evaluation if needed
-            if new_status == TaskState.COMPLETED_WORKFLOW:
-                try:
-                    final_result = self.aggregate_results(task["_id"])
-                    self.collection.update_one(
-                        {"_id": ObjectId(task["_id"])},
-                        {"$set": {"result": final_result}},  # Ensure 'result' is set
-                    )
-                    logger.info(f"Final result updated for task {task['_id']}")
-                except Exception as e:
-                    logger.error(
-                        f"Failed to update final result for task {task['_id']}: {e}"
-                    )
-
-            return {
-                "task_id": str(task["_id"]),
-                "result": conversation_result.response
-                if conversation_result.success
-                else conversation_result.error,
-                "success": conversation_result.success,
-                "metrics": conversation_result.metrics,
             }
+
+            # Send the result back to the BOSS
+            self.send_result_to_boss(step_result)
+
+            return step_result
+
         except Exception as e:
             logger.error(f"Error processing task: {str(e)}")
+            return {"success": False, "error": str(e)}
 
     def start(self):
         """Start the conversation agent with proper logging"""

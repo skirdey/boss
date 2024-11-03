@@ -1,12 +1,13 @@
+# wrappers/wrapper_ping.py
+
 import logging
 import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Any, Dict
 
 from pydantic import BaseModel, Field
-from pymongo import MongoClient
 
-from workflow_state_manager import StepResult
 from wrappers.wrapper_agent import WrapperAgent
 
 logging.basicConfig(
@@ -27,14 +28,10 @@ class WrapperPing(WrapperAgent):
     def __init__(
         self,
         agent_id="agent_network_ping",
-        db_uri="mongodb://localhost:27017/",
         kafka_bootstrap_servers="localhost:9092",
     ):
-        super().__init__(agent_id, db_uri, kafka_bootstrap_servers)
+        super().__init__(agent_id, kafka_bootstrap_servers)
         self.setup_task_logger()
-        self.client = MongoClient(db_uri)
-        self.db = self.client["agent_db"]
-        self.tasks_collection = self.db["tasks"]  # Renamed from self.collection
 
     def _call_openai_api(self, prompt):
         """Call OpenAI API with structured output parsing"""
@@ -110,87 +107,79 @@ class WrapperPing(WrapperAgent):
 
         return False
 
-    def process_task(self, task: dict) -> dict:
+    def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(task, dict) or "_id" not in task:
             logger.error("Invalid task format")
             return {"success": False, "note": "Invalid task format"}
 
         try:
-            task_description = task.get("description", "")
-            self.task_logger.info(
-                f"Processing task with description: {task_description}"
+            task_id = task.get("_id")
+            self.task_logger.info(f"Processing task with ID: {task_id}")
+
+            # Extract current step index and steps
+            current_step_index = task.get("current_step_index")
+            steps = task.get("steps", [])
+            if current_step_index is None or current_step_index >= len(steps):
+                logger.error("Invalid current_step_index")
+                return {"task_id": task_id, "error": "Invalid current_step_index"}
+
+            current_step = steps[current_step_index]
+            step_description = current_step.get("step_description", "")
+
+            # Collect previous steps' results
+            previous_steps = steps[:current_step_index]
+            previous_step_results = "\n".join(
+                [
+                    step.get("result", "")
+                    for step in previous_steps
+                    if step.get("result")
+                ]
             )
 
+            # Combine previous results with the current step description if available
+            if previous_step_results:
+                task_prompt = f"Previous step results:\n{previous_step_results}\n\nCurrent step:\n{step_description}"
+            else:
+                task_prompt = f"Current step:\n{step_description}"
+
             # Parse the command using structured output
-            parsed_command = self._call_openai_api(task_description)
+            parsed_command = self._call_openai_api(task_prompt)
+
             logger.info(f"Using command parameters: target={parsed_command.target}")
 
             # Validate the target
             if not self.is_valid_domain_or_ip(parsed_command.target):
-                step_result = StepResult(
-                    step_description="ping",
-                    success=False,
-                    result=f"Invalid target: {parsed_command.target}",
-                    error="Validation failed",
-                )
-                self.workflow_state_manager.update_workflow_state(
-                    task_id=str(task["_id"]),
-                    step_result=step_result,
-                    agent_id=self.agent_id,
-                )
                 return {
                     "task_id": str(task["_id"]),
-                    "result": step_result.result,
-                    "success": False,
+                    "result": f"Invalid target: {parsed_command.target}",
                     "note": "Validation failed",
                 }
 
             # Execute the ping command
-            start_time = datetime.now()
+            start_time = datetime.now(timezone.utc)
             ping_result = self.execute_ping(target=parsed_command.target)
-            execution_time = (datetime.now() - start_time).total_seconds()
+            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
-            # Create step result
-            step_result = StepResult(
-                step_description="ping",
-                success=True,
-                result=ping_result,
-                execution_time=execution_time,
-                metadata={
+            # Prepare the result to send back to BOSS
+            result = {
+                "task_id": str(task["_id"]),
+                "agent_id": self.agent_id,
+                "result": ping_result,
+                "execution_time": execution_time,
+                "metadata": {
                     "target": parsed_command.target,
                     "command_executed": f"ping {parsed_command.target}",
                 },
-                error=None,
-            )
+            }
 
-            # Update workflow state
-            self.workflow_state_manager.update_workflow_state(
-                task_id=str(task["_id"]),
-                step_result=step_result,
-                agent_id=self.agent_id,
-            )
-
-            return {"task_id": str(task["_id"]), "result": ping_result, "success": True}
+            return result
 
         except Exception as e:
             logger.error(f"Error processing task: {str(e)}")
-            step_result = StepResult(
-                step_description="ping",
-                success=False,
-                result=None,
-                error=str(e),
-                metadata={"exception_type": type(e).__name__},
-                execution_time=None,
-            )
-            self.workflow_state_manager.update_workflow_state(
-                task_id=str(task["_id"]),
-                step_result=step_result,
-                agent_id=self.agent_id,
-            )
             return {
                 "task_id": str(task["_id"]),
+                "agent_id": self.agent_id,
                 "error": str(e),
-                "success": False,
                 "note": "Exception occurred during task execution",
             }
 

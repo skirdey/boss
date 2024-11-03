@@ -135,26 +135,6 @@
                 <div class="field-hint" id="criteria-hint">{{ form.evaluation_criteria.description }}</div>
             </div>
 
-            <div class="form-field">
-                <label
-                    class="mdc-text-field mdc-text-field--outlined {% if form.max_retries.errors %}mdc-text-field--invalid{% endif %}">
-                    <span class="mdc-notched-outline">
-                        <span class="mdc-notched-outline__leading"></span>
-                        <span class="mdc-notched-outline__notch">
-                            <span class="mdc-floating-label" id="retries-label">{{ form.max_retries.label }}</span>
-                        </span>
-                        <span class="mdc-notched-outline__trailing"></span>
-                    </span>
-                    {{ form.max_retries(class="mdc-text-field__input", aria_describedby="retries-hint") }}
-                </label>
-                <div class="field-hint" id="retries-hint">{{ form.max_retries.description }}</div>
-                {% if form.max_retries.errors %}
-                {% for error in form.max_retries.errors %}
-                <div class="field-error">{{ error }}</div>
-                {% endfor %}
-                {% endif %}
-            </div>
-
             <div class="actions">
                 <button type="submit" class="mdc-button mdc-button--raised">
                     <span class="mdc-button__ripple"></span>
