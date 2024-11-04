@@ -112,16 +112,3 @@ def get_mx_records(target):
     except Exception as e:
         print(f"Error parsing DNS response: {e}")
         return {}
-
-
-# Example usage:
-if __name__ == "__main__":
-    target_input = "https://www.google.com"  # Can be URL, hostname, or IP
-    mx = get_mx_records(target_input)
-    print(f"\nMX Records for {target_input}:")
-    for domain, records in mx.items():
-        if records:
-            for preference, mail_server in records:
-                print(f"Preference: {preference}, Mail Server: {mail_server}")
-        else:
-            print("No MX records found.")

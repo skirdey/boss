@@ -90,17 +90,3 @@ def scan_ports(target, timeout=0.5, max_threads=100, min_delay=0.01, max_delay=0
             report += "No open ports found.\n"
 
     return report
-
-
-# Example usage:
-if __name__ == "__main__":
-    target_input = "https://www.google.com"  # Can be URL, hostname, or IP
-    result = scan_ports(
-        target=target_input,
-        timeout=0.5,  # Timeout for each port
-        max_threads=100,  # Number of concurrent threads
-        min_delay=0.05,  # Minimum delay in seconds
-        max_delay=0.2,  # Maximum delay in seconds
-    )
-    print("\nFinal Scan Report:")
-    print(result)

@@ -36,11 +36,3 @@ def whois_lookup(domain):
         return response.decode()
     except Exception as e:
         return f"Error performing WHOIS lookup: {e}"
-
-
-# Example usage:
-if __name__ == "__main__":
-    domain = "developers.inflection.ai"
-    whois_info = whois_lookup(domain)
-    print(f"WHOIS information for {domain}:\n")
-    print(whois_info)

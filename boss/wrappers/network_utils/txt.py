@@ -89,12 +89,3 @@ def get_txt_records(domain):
     except Exception as e:
         print(f"Error parsing DNS response: {e}")
         return []
-
-
-# Example usage:
-if __name__ == "__main__":
-    domain = "developers.inflection.ai"
-    txt = get_txt_records(domain)
-    print(f"TXT records for {domain}:")
-    for record in txt:
-        print(f"TXT: {record}")

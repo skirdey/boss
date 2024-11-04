@@ -96,12 +96,3 @@ def get_ns_records(domain):
     except Exception as e:
         print(f"Error parsing DNS response: {e}")
         return []
-
-
-# Example usage:
-if __name__ == "__main__":
-    domain = "developers.inflection.ai"
-    ns = get_ns_records(domain)
-    print(f"NS records for {domain}:")
-    for ns_server in ns:
-        print(f"Name Server: {ns_server}")

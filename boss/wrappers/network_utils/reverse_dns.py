@@ -28,12 +28,3 @@ def reverse_dns_lookup(target):
             reverse_dns_results[ip] = f"Error: {e}"
 
     return reverse_dns_results
-
-
-# Example usage:
-if __name__ == "__main__":
-    target_input = "https://www.google.com"  # Can be URL, hostname, or IP
-    rdns = reverse_dns_lookup(target_input)
-    print(f"\nReverse DNS Lookup for {target_input}:")
-    for ip, ptr in rdns.items():
-        print(f"{ip}: {ptr}")

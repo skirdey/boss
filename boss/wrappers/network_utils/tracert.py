@@ -60,9 +60,3 @@ def traceroute(dest_name, max_hops=30, timeout=2.0, port=33434):
             break
 
     return traceroute_result
-
-
-# Example usage:
-if __name__ == "__main__":
-    destination = "developers.inflection.ai"
-    traceroute(destination)

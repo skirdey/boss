@@ -35,12 +35,3 @@ def get_ssl_certificate(host, port=443):
     certificate["subjectAltName"] = cert.get("subjectAltName")
 
     return certificate
-
-
-# Example usage:
-if __name__ == "__main__":
-    host = "developers.inflection.ai"
-    cert_info = get_ssl_certificate(host)
-    print(f"SSL Certificate for {host}:")
-    for key, value in cert_info.items():
-        print(f"{key}: {value}")
