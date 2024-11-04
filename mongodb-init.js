@@ -7,6 +7,18 @@ db.tasks.insertMany([
     {
         "_id": ObjectId(),
         "notes": "",
+        "description": "Ping 4.4.4.4 and 8.8.8.8",
+        "status": "Created",
+
+        "created_at": new Date(),
+        "updated_at": new Date(),
+        "evaluation_criteria": "Pings are completed and results are returned",
+        "steps": [],
+        "audit_trail": [],
+    },
+    {
+        "_id": ObjectId(),
+        "notes": "",
         "description": "Ping 8.8.8.8",
         "status": "Created",
 
@@ -37,7 +49,7 @@ db.agents.insertMany([
     {
         "agent_id": "agent_network_ping",
         "capabilities": [
-            "can interact with command line interface to call `ping` command"
+            "can interact with command line interface to call `ping` command, this agent is able to ping a given IP or a domain and return the results without any additional setup in a single step"
         ],
         "status": "active",
 
@@ -45,7 +57,7 @@ db.agents.insertMany([
     {
         "agent_id": "agent_conversation",
         "capabilities": [
-            "can analyze data, answer questions, and provide broad insights (do not have access to CLI or internet)"
+            "can analyze data, answer questions, and provide broad insights (do not have access to CLI or internet) - this agent is perfect for research, reasoning, data analysis, etc."
         ],
         "status": "active",
 

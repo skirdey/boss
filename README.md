@@ -1,63 +1,50 @@
+Certainly! Below is the updated **README** for the **BOSS - LLM Operating System** project. This revision incorporates the latest code structure, including the `BossPrompts` and `WrapperAgent` classes, and provides clearer guidance on integrating agents into the system.
+
+---
+
 # BOSS - LLM Operating System
 
-BOSS is an intelligent task orchestration system that uses LLMs (Large Language Models) to coordinate and execute agent-based workflows. Think of it as a smart task manager that can:
-- Break down complex tasks into manageable steps
-- Choose the best agent for each step
-- Monitor execution and handle failures
-- Adapt and optimize in real-time
-- Know when to ask for human help
+BOSS is an intelligent task orchestration system that leverages Large Language Models (LLMs) to coordinate and execute agent-based workflows. Think of it as a smart task manager that can:
 
-`
-! Note - this project is still under development and not all features are fully implemented. Do not use in production.
-`
+- **Break Down Complex Tasks:** Decompose intricate tasks into manageable, actionable steps.
+- **Smart Agent Selection:** Assign the most suitable agent for each step based on capabilities.
+- **Real-time Monitoring & Adaptation:** Track execution progress, handle failures, and optimize workflows on the fly.
+- **Robust Error Handling:** Implement multiple retry strategies with intelligent failure analysis.
+- **Human-in-the-Loop:** Recognize when to escalate tasks for human intervention.
+- **Performance Monitoring:** Continuously monitor system health and agent performance.
+
+> **Note:** This project is still under development and not all features are fully implemented. **Do not use in production.**
+
+## Table of Contents
+
+- [Key Features](#key-features)
+- [Architecture](#architecture)
+- [Quick Start](#quick-start)
+  - [Local Setup](#local-setup)
+  - [Launching BOSS](#launching-boss)
+  - [Integrating Agents](#integrating-agents)
+- [How It Works](#how-it-works)
+- [Configuration](#configuration)
+- [Agent Integration](#agent-integration)
+- [Task States](#task-states)
+- [License](#license)
 
 ## Key Features
 
-- **Intelligent Task Analysis**: Automatically assesses task complexity and required steps
-- **Smart Agent Selection**: Matches tasks with the most capable agents
-- **Real-time Adaptation**: Adjusts workflows based on performance and results
-- **Robust Error Handling**: Multiple retry strategies with intelligent failure analysis
-- **Human-in-the-Loop**: Knows when to request human intervention
-- **Performance Monitoring**: Tracks system health and agent performance
-
-## Quick Start
-
-### Local Setup
-
-1. Create virtual environment and install dependencies:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-2. Build web components:
-```bash
-cd web && docker compose build
-```
-
-3. Start infrastructure services:
-```bash
-# In root directory
-docker compose up
-```
-This starts:
-- Web UI
-- Kafka message broker
-- MongoDB database
-- Zookeeper (required for Kafka)
-
-4. Launch BOSS:
-```bash
-./start.py
-```
-This initializes the orchestration system and agents.
+- **Intelligent Task Analysis:** Automatically assesses task complexity and required steps.
+- **Smart Agent Selection:** Matches tasks with the most capable agents.
+- **Real-time Adaptation:** Adjusts workflows based on performance and results.
+- **Robust Error Handling:** Implements multiple retry strategies with intelligent failure analysis.
+- **Human-in-the-Loop:** Recognizes when to request human intervention.
+- **Performance Monitoring:** Tracks system health and agent performance.
+- **Agent Wrappers:** Provides an abstract interface (`WrapperAgent`) for integrating various agents seamlessly.
+- **Prompt Management:** Utilizes structured prompts (`BossPrompts`) to interact with LLMs for task planning and evaluation.
 
 ## Architecture
 
-```
+```plaintext
 ┌───────────────────────────────────────────────────┐
-│             BOSS Core System                      │
+│                 BOSS Core System                   │
 ├───────────────────────────────────────────────────┤
 │ ┌─────────────┐  ┌──────────────┐  ┌──────────┐  │
 │ │Task Analysis│  │Agent Selection│  │Monitoring│  │
@@ -69,95 +56,217 @@ This initializes the orchestration system and agents.
                       │
 ┌─────────────────────▼─────────────────────────────┐
 │                Message Bus                         │
-│                  (Kafka)                          │
+│                  (Kafka)                           │
 └─────────────────────┬─────────────────────────────┘
                       │
 ┌─────────────────────▼─────────────────────────────┐
-│              Agent Network                         │
+│               Agent Network                        │
 ├───────────────┬───────────────┬───────────────────┤
 │    Agent 1    │    Agent 2    │     Agent N       │
-│  (Capability  │  (Capability  │   (Capability     │
-│    Set A)     │    Set B)     │     Set N)        │
+│ (WrapperAgent │ (WrapperAgent │ (WrapperAgent     │
+│    Subclass)  │    Subclass)  │    Subclass)      │
 └───────────────┴───────────────┴───────────────────┘
-        │               │               │
-        └───────────────▼───────────────┘
-┌───────────────────────────────────────────────────┐
-│                  Storage                          │
-├─────────────────┬─────────────────┬──────────────┤
-│     Tasks       │     History     │    Metrics    │
-│   (MongoDB)     │    (MongoDB)    │   (MongoDB)   │
-└─────────────────┴─────────────────┴──────────────┘
 ```
+
+### Components
+
+- **BOSS Core System:** Manages task orchestration, agent selection, monitoring, and error handling.
+- **Message Bus (Kafka):** Facilitates communication between BOSS and agents.
+- **Agent Network:** Comprises various agents implemented as subclasses of `WrapperAgent`, each tailored to specific capabilities.
+
+## Quick Start
+
+### Local Setup
+
+1. **Clone the Repository**
+
+
+2. **Create Virtual Environment & Install Dependencies:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+
+3. **Build Web Components:**
+   ```bash
+   cd web && docker compose build
+   ```
+
+4. **Start Infrastructure Services:**
+   ```bash
+   # In root directory
+   docker compose up
+   ```
+   This command starts:
+   - **Web UI**
+   - **Kafka Message Broker**
+   - **MongoDB Database**
+   - **Zookeeper** (required for Kafka)
+
+### Launching BOSS
+
+1. **Initialize the Orchestration System:**
+   ```bash
+   python ./start.py
+   ```
+   This script initializes BOSS and its agents, setting up necessary connections and listeners.
+
+### Integrating Agents
+
+1. **Create a New Agent:**
+   - Subclass the `WrapperAgent` abstract class.
+   - Implement the `process_task` method with your agent's specific logic.
+
+   ```python
+   # agents/my_agent.py
+
+   from wrappers.wrapper_agent import WrapperAgent
+
+   class MyAgent(WrapperAgent):
+       def process_task(self, task: Dict) -> Dict[str, Any]:
+           # Implement task processing logic
+           result = {
+               "task_id": task["_id"],
+               "result": "Task completed successfully.",
+               "status": "success",
+               # Add additional fields as needed
+           }
+           return result
+
+   if __name__ == "__main__":
+       agent = MyAgent(agent_id="my_agent_id")
+       agent.start()
+   ```
+
+2. **Run the Agent:**
+   ```bash
+   python start.py
+   ```
+   The agent will start listening for tasks assigned to it via Kafka and send back results upon completion.
 
 ## How It Works
 
 1. **Task Submission**
-   - Tasks are submitted to MongoDB
-   - BOSS analyzes complexity using LLMs
-   - System estimates required steps and resources
+   - Tasks are submitted to BOSS via Kafka.
+   - BOSS analyzes the task using LLMs and determines the required steps and resources.
 
 2. **Task Orchestration**
-   - BOSS coordinates task execution across agents
-   - Real-time monitoring of progress and performance
-   - Intelligent handling of failures and retries
+   - BOSS breaks down the task into manageable steps.
+   - Each step is assigned to the most suitable agent based on capabilities.
 
-3. **Agent Selection**
-   - Matches task requirements with agent capabilities
-   - Considers agent load and performance history
-   - Dynamically adjusts assignments based on results
+3. **Agent Execution**
+   - Agents receive tasks through Kafka.
+   - Upon processing, agents send back results to BOSS.
 
-4. **Error Handling**
-   - Multiple retry strategies with backoff
-   - Intelligent failure analysis
-   - Automatic escalation to human intervention when needed
+4. **Monitoring & Adaptation**
+   - BOSS monitors task progress and agent performance in real-time.
+   - Handles failures with retry strategies or escalates to human intervention if necessary.
 
-## Example Usage
-
-Task: Network connectivity check
-```python
-task = {
-    "description": "ping 8.8.8.8",
-    "priority": "medium",
-    "timeout": 30
-}
-```
+5. **Final Evaluation**
+   - Once all steps are completed, BOSS performs a final evaluation to ensure task completion meets all criteria.
 
 Result in UI:
 ![Network Ping Example](imgs/ping_agent.png)
 
 ## Configuration
 
-BOSS uses environment variables for configuration. Create a `.env` file with:
+BOSS uses environment variables for configuration. Create a `.env` file in the root directory with the following content:
 
 ```env
-OPENAI_API_KEY=your_api_key
+OPENAI_API_KEY=your_openai_api_key
 MONGODB_URI=mongodb://localhost:27017
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 ```
 
-## Advanced Features
+### Environment Variables
 
-- **Chain-of-Thought Reasoning**: Uses structured reasoning for complex decisions
-- **Risk Assessment**: Evaluates potential issues before task execution
-- **Performance Optimization**: Adapts check intervals based on task complexity
-- **Parallel Execution**: Identifies tasks that can run simultaneously
-- **Audit Trail**: Comprehensive history of all actions and decisions
+- **OPENAI_API_KEY:** API key for accessing OpenAI's services.
+- **MONGODB_URI:** Connection string for the MongoDB database.
+- **KAFKA_BOOTSTRAP_SERVERS:** Address of the Kafka broker.
+
+## Agent Integration
+
+To integrate new agents into BOSS, follow these steps:
+
+1. **Subclass `WrapperAgent`:**
+   - Create a new Python file for your agent.
+   - Subclass the `WrapperAgent` abstract class.
+   - Implement the `process_task` method with your agent's specific logic.
+
+2. **Implement `process_task`:**
+   - This method receives a task dictionary.
+   - Process the task as per your agent's capabilities.
+   - Return a result dictionary containing task outcomes.
+
+3. **Start the Agent:**
+   - Instantiate your agent class with a unique `agent_id`.
+   - Call the `start` method to begin listening for tasks.
+
+### Example:
+
+```python
+# agents/example_agent.py
+
+from wrappers.wrapper_agent import WrapperAgent
+from typing import Dict, Any
+
+class ExampleAgent(WrapperAgent):
+    def process_task(self, task: Dict) -> Dict[str, Any]:
+        # Example processing logic
+        task_description = task.get("description", "No description provided.")
+        # Simulate task processing
+        result = {
+            "task_id": task["_id"],
+            "result": f"Processed task: {task_description}",
+            "status": "success",
+            "metadata": {"processed_at": datetime.now(timezone.utc).isoformat()},
+        }
+        return result
+
+if __name__ == "__main__":
+    agent = ExampleAgent(agent_id="example_agent")
+    agent.start()
+```
 
 ## Task States
 
-- `CREATED`: Initial task state
-- `IN_PROGRESS`: Task is being executed
-- `WAITING_FOR_EVALUATION`: Completed, pending success verification
-- `AWAITING_HUMAN`: Requires human intervention
-- `COMPLETED`: Successfully finished
-- `FAILED`: Failed and exceeded retry attempts
-- `PENDING_NEXT_STEP`: Ready for next step execution
-- `PAUSED`: Temporarily suspended
+BOSS manages tasks through various states to ensure efficient orchestration and tracking. Below are the possible states a task can be in:
 
-## Contributing
+```python
+from enum import Enum
 
-Contributions welcome! Please check out our [Contributing Guidelines](CONTRIBUTING.md) for details on our code of conduct and development process.
+class TaskState(str, Enum):
+    CREATED = "Created"
+    IN_PROGRESS = "In_Progress"
+    WAITING_FOR_EVALUATION = "Waiting_For_Evaluation"
+    AWAITING_HUMAN = "Awaiting_Human"
+    COMPLETED_STEP = "Completed_Step"
+    COMPLETED_WORKFLOW = "Completed_Workflow"
+    FAILED = "Failed"
+    PENDING_NEXT_STEP = "Pending_Next_Step"
+    PAUSED = "Paused"
+    FINAL_COMPLETION = "Final_Complition"
+```
+
+### State Transitions
+
+1. **Created → In_Progress:** When a task is assigned to an agent.
+2. **In_Progress → Completed_Step:** Upon successful completion of a step.
+3. **In_Progress → Failed:** If a step fails after retries.
+4. **Failed → Awaiting_Human:** If the system cannot automatically resolve the failure.
+5. **Completed_Step → Completed_Workflow:** When all steps are successfully completed.
+6. **Any State → Paused:** If the task is manually paused.
+7. **Any State → Final_Complition:** After final evaluation of the task.
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## Additional Notes
+
+- **Logging:** BOSS and agents use Python's `logging` module for detailed logs. Customize logging levels and formats as needed.
+- **Extensibility:** The modular design allows for easy integration of new agents and expansion of capabilities.
+- **Error Handling:** Comprehensive error handling ensures that failures are managed gracefully, with opportunities for retries or human intervention.
