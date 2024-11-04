@@ -1,6 +1,5 @@
 from dotenv import load_dotenv
 
-from agent_scheduler import AgentScheduler
 from boss_prompts import BossPrompts
 from models import (
     AgentSelectionAnalysis,
@@ -65,9 +64,6 @@ class BOSS:
             self.tasks_collection = self.db["tasks"]
             self.agents_collection = self.db["agents"]
             self.task_history_collection = self.db["task_history"]
-            self.scheduler = AgentScheduler(
-                self.tasks_collection, self.agents_collection
-            )
 
         except ServerSelectionTimeoutError as err:
             logger.error(f"Error: Could not connect to MongoDB server: {err}")
@@ -489,39 +485,6 @@ class BOSS:
             logger.error(f"Error evaluating task result with LLM: {e}")
             return False
 
-    def _handle_successful_completion(self, task: Dict, evaluation: Dict):
-        """Handle successful completion of a step"""
-        task_id = str(task["_id"])
-        current_step_index = task.get("current_step_index")
-        if current_step_index is None:
-            logger.error(f"No current_step_index for task {task_id}")
-            return
-
-        steps = task.get("steps", [])
-        if current_step_index >= len(steps):
-            logger.error(f"Invalid current_step_index for task {task_id}")
-            return
-
-        current_step = steps[current_step_index]
-        # Update the step with the result
-        current_step["state"] = TaskState.COMPLETED_STEP.value
-        current_step["result"] = evaluation.get("result", "")
-        current_step["updated_at"] = datetime.now(timezone.utc)
-
-        # Clear current_step_index
-        self.tasks_collection.update_one(
-            {"_id": task["_id"]},
-            {
-                "$set": {
-                    "steps": steps,
-                    "current_step_index": None,
-                    "current_agent": None,
-                    "updated_at": datetime.now(timezone.utc),
-                }
-            },
-        )
-        logger.info(f"Step {current_step_index} completed for task {task_id}")
-
     def _handle_failed_completion(self, task: Dict, evaluation: Dict):
         """Handle failed completion of a step and generate additional steps if necessary"""
         task_id = str(task["_id"])
@@ -635,35 +598,6 @@ class BOSS:
             },
         )
 
-    def _handle_invalid_task(self, task: Dict, error_msg: str):
-        """Handle tasks with invalid structure or missing required fields"""
-        try:
-            task_id = task.get("_id", "UNKNOWN")
-            update_data = {
-                "status": TaskState.FAILED.value,
-                "error": f"Invalid task structure: {error_msg}",
-                "updated_at": datetime.now(timezone.utc),
-                "validation_failure": {
-                    "timestamp": datetime.now(timezone.utc),
-                    "error": error_msg,
-                },
-            }
-
-            if isinstance(task_id, ObjectId):
-                self.tasks_collection.update_one(
-                    {"_id": task_id}, {"$set": update_data}
-                )
-
-                self._record_task_history(
-                    task_id, "VALIDATION_FAILURE", None, {"error": error_msg}
-                )
-
-                self._request_human_intervention(
-                    task, f"Task validation failed: {error_msg}"
-                )
-        except Exception as e:
-            logger.error(f"Error handling invalid task: {e}")
-
     def check_tasks(self):
         while self.running:
             tasks = list(
@@ -709,13 +643,6 @@ class BOSS:
 
         logger.info("BOSS service started with enhanced thread management")
 
-    def __del__(self):
-        """Ensure proper cleanup on object destruction"""
-        try:
-            self.stop()
-        except Exception as e:
-            logger.error(f"Error during cleanup in __del__: {e}")
-
     # works as expected
     def stop(self):
         self.running = False
@@ -723,8 +650,10 @@ class BOSS:
         for thread in self.threads:
             if thread.is_alive():
                 thread.join()
-        self.client.close()
-        self.producer.close()
+        if self.client:
+            self.client.close()
+        if self.producer:
+            self.producer.close()
         logger.info("Boss stopped.")
 
     # works as expected
