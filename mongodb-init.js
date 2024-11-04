@@ -7,7 +7,7 @@ db.tasks.insertMany([
     {
         "_id": ObjectId(),
         "notes": "",
-        "description": "Ping 4.4.4.4 and 8.8.8.8",
+        "description": "Ping 1.1.1.1 and 8.8.8.8",
         "status": "Created",
 
         "created_at": new Date(),
