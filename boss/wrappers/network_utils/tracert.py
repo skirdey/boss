@@ -16,6 +16,7 @@ def traceroute(dest_name, max_hops=30, timeout=2.0, port=33434):
     print(f"Traceroute to {dest_name} ({dest_addr}), {max_hops} hops max.")
 
     traceroute_result = []
+    curr_addr = None
 
     for ttl in range(1, max_hops + 1):
         # Create a UDP socket
@@ -37,26 +38,29 @@ def traceroute(dest_name, max_hops=30, timeout=2.0, port=33434):
         try:
             data, curr_addr = recv_socket.recvfrom(512)
             rtt = (time.time() - start_time) * 1000  # in ms
+            curr_hop_addr = curr_addr[0]  # Extract IP from address tuple
             try:
-                curr_name = socket.gethostbyaddr(curr_addr[0])[0]
+                curr_name = socket.gethostbyaddr(curr_hop_addr)[0]
             except socket.error:
-                curr_name = curr_addr[0]
+                curr_name = curr_hop_addr
         except socket.timeout:
+            curr_hop_addr = "*"
             rtt = None
         finally:
             send_socket.close()
             recv_socket.close()
 
-        if curr_addr:
-            hop_info = (ttl, curr_addr[0], f"{rtt:.2f} ms" if rtt else "*")
+        if curr_hop_addr:
+            hop_info = (ttl, curr_hop_addr, f"{rtt:.2f} ms" if rtt else "*")
             traceroute_result.append(hop_info)
-            print(f"{ttl}\t{curr_addr[0]}\t{hop_info[2]}")
+            print(f"{ttl}\t{curr_hop_addr}\t{hop_info[2]}")
         else:
             hop_info = (ttl, "*", "*")
             traceroute_result.append(hop_info)
             print(f"{ttl}\t*\t*")
 
-        if curr_addr and curr_addr[0] == dest_addr:
+        # Only break if we've reached the destination
+        if curr_hop_addr == dest_addr:
             break
 
     return traceroute_result
