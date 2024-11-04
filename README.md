@@ -1,4 +1,4 @@
-# BOSS (Brain Operating System)
+# BOSS - LLM Operating System
 
 BOSS is an intelligent task orchestration system that uses LLMs (Large Language Models) to coordinate and execute agent-based workflows. Think of it as a smart task manager that can:
 - Break down complex tasks into manageable steps
