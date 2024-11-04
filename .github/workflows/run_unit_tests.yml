@@ -35,6 +35,6 @@ jobs:
     
     - name: Run tests with pytest
       run: |
-        cd boss && pytest -n autotests/
+        cd boss && pytest -n auto tests/
       env:
         PYTHONPATH: ${{ github.workspace }}
