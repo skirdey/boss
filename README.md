@@ -14,6 +14,7 @@ BOSS is an intelligent task orchestration system that leverages Large Language M
 - **Performance Monitoring:** Continuously monitor system health and agent performance.
 
 > **Note:** This project is still under development and not all features are fully implemented. **Do not use in production.**
+> *This project currently focuses on network security related reasoning tasks. At the same time,BOSS can be extended to other domains with ease.*
 
 ## Table of Contents
 
