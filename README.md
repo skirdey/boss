@@ -1,7 +1,3 @@
-Certainly! Below is the updated **README** for the **BOSS - LLM Operating System** project. This revision incorporates the latest code structure, including the `BossPrompts` and `WrapperAgent` classes, and provides clearer guidance on integrating agents into the system.
-
----
-
 # BOSS - LLM Operating System
 
 BOSS is an intelligent task orchestration system that leverages Large Language Models (LLMs) to coordinate and execute agent-based workflows. Think of it as a smart task manager that can:
