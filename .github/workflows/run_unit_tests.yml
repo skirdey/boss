@@ -13,12 +13,6 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
 
-    services:
-      mongodb:
-        image: mongo:latest
-        ports:
-          - 27017:27017
-
     steps:
     - uses: actions/checkout@v3
     
