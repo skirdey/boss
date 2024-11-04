@@ -6,6 +6,19 @@ import time
 from wrappers.network_utils import parse_target
 
 
+def _validate_input_params(timeout, max_threads, min_delay, max_delay):
+    """Validate input parameters for the scan_ports function."""
+    if timeout <= 0:
+        raise ValueError("Timeout must be positive")
+    if max_threads <= 0:
+        raise ValueError("Number of threads must be positive")
+    if min_delay <= 0 or max_delay <= 0:
+        raise ValueError("Delay values must be positive")
+    if max_delay <= min_delay:
+        raise ValueError("Maximum delay must be greater than minimum delay")
+    return True
+
+
 def scan_ports(target, timeout=0.5, max_threads=100, min_delay=0.01, max_delay=0.1):
     """
     Scans all TCP ports on the specified target (URL, hostname, or IP)
@@ -19,7 +32,7 @@ def scan_ports(target, timeout=0.5, max_threads=100, min_delay=0.01, max_delay=0
     :param max_delay: Maximum delay (in seconds) before each scan attempt.
     :return: A formatted string listing all open ports and their services for each resolved IP.
     """
-
+    _validate_input_params(timeout, max_threads, min_delay, max_delay)
     hostname, ip_addresses = parse_target(target)
 
     if not ip_addresses:
