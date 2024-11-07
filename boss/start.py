@@ -4,10 +4,12 @@ import time
 
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
+from wrappers.wrapper_conversation import WrapperConversation
+from wrappers.wrapper_get_ssl import WrapperGetSSLCertificateAgent
+from wrappers.wrapper_ping_agent import WrapperPing
+from wrappers.wrapper_scan_ports import WrapperScanPortAgent
 
 from boss import BOSS
-from wrappers.wrapper_conversation import WrapperConversation
-from wrappers.wrapper_ping_agent import WrapperPing
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,7 +44,7 @@ def shutdown():
     for component, thread in threads:
         component.stop()
     for component, thread in threads:
-        thread.join()
+        thread.join(timeout=5)
     logger.info("All components have been stopped.")
 
 
@@ -88,6 +90,12 @@ def main():
 
         start_component(WrapperConversation)
         logger.info("Conversation agent started successfully")
+
+        start_component(WrapperScanPortAgent)
+        logger.info("Scan ports agent started successfully")
+
+        start_component(WrapperGetSSLCertificateAgent)
+        logger.info("Get SSL agent started successfully")
 
         # Keep the application running until interrupted
         while not shutdown_event.is_set():

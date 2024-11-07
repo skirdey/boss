@@ -1,6 +1,5 @@
-from dotenv import load_dotenv
-
 from boss_prompts import BossPrompts
+from dotenv import load_dotenv
 from models import (
     AgentSelectionAnalysis,
     StepEstimationResponse,
@@ -25,7 +24,6 @@ from openai import OpenAI
 from pydantic import BaseModel
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
-
 from utils import serialize_task
 
 logger = logging.getLogger(__name__)
@@ -73,7 +71,7 @@ class BOSS:
             bootstrap_servers=kafka_bootstrap_servers,
             value_deserializer=lambda m: json.loads(m.decode("utf-8")),
             consumer_timeout_ms=1000,
-            group_id="boss_group",  # Add this line
+            group_id="boss_group",
         )
 
         # Subscribe to all agent result topics
@@ -102,7 +100,7 @@ class BOSS:
             self.shutdown_event.wait(timeout=self.check_interval)
 
     def handle_agent_result(self, result: Dict[str, Any]):
-        """Handle the result received from an agent via Kafka"""
+        """Handle the result received from an agent via Kafka with improved step validation"""
         try:
             task_id = result.get("task_id")
             if not task_id:
@@ -114,7 +112,6 @@ class BOSS:
                 logger.error(f"Task {task_id} not found in database.")
                 return
 
-            # Update the current step based on the result
             current_step_index = task.get("current_step_index")
             if current_step_index is None:
                 logger.error(f"No current_step_index for task {task_id}")
@@ -128,44 +125,63 @@ class BOSS:
             current_step = steps[current_step_index]
             step_description = current_step.get("step_description", "")
             agent_result = result.get("result", "")
+            expected_outcome = current_step.get("expected_outcome", "")
 
-            # Evaluate the step result using LLM
+            # Evaluate step result using the dedicated method
             evaluation_success = self._evaluate_step_result_with_llm(
-                step_description, agent_result
+                step_description=step_description,
+                step_result=agent_result,
+                expected_outcome=expected_outcome,
             )
 
             if evaluation_success:
                 current_step["state"] = TaskState.COMPLETED_STEP.value
                 current_step["result"] = agent_result
                 current_step["updated_at"] = datetime.now(timezone.utc)
+
+                next_step_index = None
+                for idx, step in enumerate(
+                    steps[current_step_index + 1 :], start=current_step_index + 1
+                ):
+                    if step.get("state") == TaskState.CREATED.value:
+                        next_step_index = idx
+                        break
+
+                if next_step_index is not None:
+                    task["current_step_index"] = next_step_index
+
             else:
                 current_step["state"] = TaskState.FAILED.value
-                current_step["error"] = "Result does not satisfy the step description."
+                current_step["error"] = (
+                    "Result does not satisfy the step description and expected outcome."
+                )
                 current_step["updated_at"] = datetime.now(timezone.utc)
 
-            # Update the task in the database
-            self.tasks_collection.update_one(
-                {"_id": ObjectId(task_id)},
-                {
-                    "$set": {
-                        "steps": steps,
-                        "current_step_index": None,
-                        "current_agent": None,
-                        "updated_at": datetime.now(timezone.utc),
-                    }
-                },
-            )
-            logger.info(f"Updated task {task_id} with result from agent.")
+                # Update the task in the database with proper step progression
+            update_fields = {
+                "steps": steps,
+                "updated_at": datetime.now(timezone.utc),
+            }
 
-            # Re-fetch the task to get the updated state
-            task = self.tasks_collection.find_one({"_id": ObjectId(task_id)})
-
-            # Handle next steps or completion
-            if evaluation_success:
-                self._process_task_with_inference(task)
+            if next_step_index is not None:
+                update_fields["current_step_index"] = next_step_index
+                update_fields["current_agent"] = None  # Clear agent for next assignment
             else:
-                # Handle failure, possibly generate additional steps
-                self._handle_failed_completion(task, result)
+                # If no next step, clear both fields
+                update_fields["current_step_index"] = None
+                update_fields["current_agent"] = None
+
+            self.tasks_collection.update_one(
+                {"_id": ObjectId(task_id)}, {"$set": update_fields}
+            )
+
+            # Re-fetch task and process next steps if available
+            updated_task = self.tasks_collection.find_one({"_id": ObjectId(task_id)})
+            if next_step_index is not None:
+                self._process_task_with_inference(updated_task)
+            else:
+                # If no next step, perform final evaluation
+                self._perform_final_evaluation(updated_task)
 
         except Exception as e:
             logger.error(f"Error handling agent result: {e}")
@@ -263,20 +279,28 @@ class BOSS:
             return []
 
     def _evaluate_step_result_with_llm(
-        self, step_description: str, step_result: str
+        self, step_description: str, step_result: str, expected_outcome: str = ""
     ) -> bool:
-        """Evaluate step results using LLM"""
+        """Evaluate step results using LLM with enhanced context"""
         try:
-            # Use new prompt system
             messages = self.prompts.format_step_evaluation(
-                step_description=step_description, step_result=step_result
+                step_description=f"""
+                Step Description: {step_description}
+                Expected Outcome: {expected_outcome}
+                
+                The step result should:
+                1. Directly address the step description
+                2. Match or progress towards the expected outcome
+                3. Provide unique value not covered in previous steps
+                4. Be concrete and specific rather than generic
+                """,
+                step_result=step_result,
             )
 
-            # Call OpenAI API with structured response
             evaluation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=TaskEvaluationResponse,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
 
             return evaluation.success
@@ -303,6 +327,27 @@ class BOSS:
             # Find the current step index
             current_step_index = task.get("current_step_index")
 
+            # Add tracking of completed and failed steps
+            completed_steps = [
+                step
+                for step in steps
+                if step.get("state") == TaskState.COMPLETED_STEP.value
+            ]
+            failed_steps = [
+                step for step in steps if step.get("state") == TaskState.FAILED.value
+            ]
+            pending_steps = [
+                step for step in steps if step.get("state") == TaskState.CREATED.value
+            ]
+
+            # If we have any failed steps and no more pending steps, perform final evaluation
+            if failed_steps and not pending_steps:
+                logger.info(
+                    f"Task {task_id} has failed steps and no pending steps. Performing final evaluation."
+                )
+                self._perform_final_evaluation(task)
+                return
+
             previous_steps = (
                 steps[:current_step_index]
                 if current_step_index and current_step_index > 0
@@ -311,7 +356,6 @@ class BOSS:
             previous_step_results = "\n".join(
                 [step.get("result", "") for step in previous_steps]
             )
-
             task["previous_step_results"] = previous_step_results
 
             if not steps:
@@ -403,58 +447,100 @@ class BOSS:
             self._handle_task_failure(task, None, str(e))
 
     def _perform_final_evaluation(self, task: Dict):
-        """
-        Perform a final evaluation of the task based on the evaluation_criteria using the LLM.
-        """
+        """Perform final evaluation of the task based on completed and failed steps."""
         try:
             task_id = str(task["_id"])
-            evaluation_criteria = task.get("evaluation_criteria")
-            if not evaluation_criteria:
-                # No evaluation criteria set, mark task as completed
-                self.tasks_collection.update_one(
-                    {"_id": task["_id"]},
-                    {"$set": {"status": TaskState.COMPLETED_WORKFLOW.value}},
-                )
-                logger.info(
-                    f"Task {task_id} completed successfully without evaluation criteria."
-                )
-                return
-
-            # Aggregate results from all successful steps
             steps = task.get("steps", [])
-            successful_steps = [
+
+            # Gather all completed step results
+            completed_steps = [
                 step
                 for step in steps
                 if step.get("state") == TaskState.COMPLETED_STEP.value
             ]
+            failed_steps = [
+                step for step in steps if step.get("state") == TaskState.FAILED.value
+            ]
+
+            # Combine results from successful steps
             combined_results = "\n".join(
-                [step.get("result", "") for step in successful_steps]
+                [
+                    f"Step {step.get('step_number')}: {step.get('result', '')}"
+                    for step in completed_steps
+                ]
             )
 
-            # Use LLM to evaluate combined results against evaluation criteria
-            evaluation_success = self._evaluate_task_result_with_llm(
-                evaluation_criteria, combined_results
+            # Add information about failed steps
+            failed_steps_info = "\n".join(
+                [
+                    f"Failed Step {step.get('step_number')}: {step.get('error', '')}"
+                    for step in failed_steps
+                ]
             )
 
-            if evaluation_success:
-                # Mark task as completed successfully
-                self.tasks_collection.update_one(
-                    {"_id": task["_id"]},
-                    {"$set": {"status": TaskState.COMPLETED_WORKFLOW.value}},
-                )
-                logger.info(
-                    f"Task {task_id} passed final evaluation and completed successfully."
-                )
-            else:
-                # Mark task as failed
-                self.tasks_collection.update_one(
-                    {"_id": task["_id"]}, {"$set": {"status": TaskState.FAILED.value}}
-                )
-                logger.info(f"Task {task_id} failed final evaluation.")
-                # Optionally, request human intervention
-                self._request_human_intervention(
-                    task, "Task failed final evaluation against evaluation criteria."
-                )
+            evaluation_criteria = task.get("evaluation_criteria", "")
+            if not evaluation_criteria:
+                # If no specific criteria, use default based on step completion
+                if failed_steps:
+                    default_message = (
+                        f"Task completed with {len(completed_steps)} successful steps "
+                        f"and {len(failed_steps)} failed steps. Failed steps: {failed_steps_info}"
+                    )
+                    self.tasks_collection.update_one(
+                        {"_id": task["_id"]},
+                        {
+                            "$set": {
+                                "status": TaskState.FAILED.value,
+                                "completion_message": default_message,
+                                "updated_at": datetime.now(timezone.utc),
+                            }
+                        },
+                    )
+                    logger.info(f"Task {task_id} marked as failed due to failed steps.")
+                    return
+                else:
+                    evaluation_criteria = "Verify that all steps completed successfully and produced expected results."
+
+            # Use LLM to evaluate results against criteria
+            messages = self.prompts.format_final_evaluation(
+                task_description=task.get("description", ""),
+                evaluation_criteria=evaluation_criteria,
+                step_results=f"Completed Steps:\n{combined_results}\n\nFailed Steps:\n{failed_steps_info}",
+            )
+
+            evaluation = self.call_openai_api_structured(
+                messages=messages,
+                response_model=TaskEvaluationResponse,
+                model="gpt-4o-mini",
+            )
+
+            # Update task status based on evaluation
+            new_status = (
+                TaskState.COMPLETED_WORKFLOW.value
+                if evaluation.success
+                else TaskState.FAILED.value
+            )
+            self.tasks_collection.update_one(
+                {"_id": task["_id"]},
+                {
+                    "$set": {
+                        "status": new_status,
+                        "completion_message": evaluation.explanation,
+                        "final_evaluation": {
+                            "success": evaluation.success,
+                            "explanation": evaluation.explanation,
+                            "completed_steps": len(completed_steps),
+                            "failed_steps": len(failed_steps),
+                            "evaluation_timestamp": datetime.now(timezone.utc),
+                        },
+                        "updated_at": datetime.now(timezone.utc),
+                    }
+                },
+            )
+
+            logger.info(
+                f"Task {task_id} final evaluation completed. Success: {evaluation.success}"
+            )
 
         except Exception as e:
             logger.error(f"Error during final task evaluation: {e}")
@@ -599,6 +685,9 @@ class BOSS:
         )
 
     def check_tasks(self):
+        logger.debug("Checking tasks")
+        logger.debug(f"Running: {self.running}")
+
         while self.running:
             tasks = list(
                 self.tasks_collection.find(
@@ -611,6 +700,9 @@ class BOSS:
                     }
                 )
             )
+
+            logger.debug(f"Tasks: {tasks}")
+
             for task in tasks:
                 self._process_task_with_inference(task)
 
@@ -624,36 +716,58 @@ class BOSS:
 
     # works as expected
     def start(self):
-        """Start the BOSS service with enhanced thread management"""
-        self.running = True
-        self.shutdown_event.clear()
+        """Start the BOSS service with enhanced thread management and health checks"""
 
-        # Create threads using the new helper method
-        self.task_thread = self._create_daemon_thread(self.check_tasks, "TaskProcessor")
-        self.result_thread = self._create_daemon_thread(
-            self.consume_agent_results, "ResultConsumer"
-        )
-        self.monitor_thread = self._create_daemon_thread(
-            self._monitor_system_health, "SystemMonitor"
-        )
+        try:
+            self.running = True
+            self.shutdown_event.clear()
 
-        # Start threads
-        for thread in self.threads:
-            thread.start()
+            # Verify connections before starting threads
+            try:
+                # Test MongoDB connection
+                self.client.admin.command("ping")
 
-        logger.info("BOSS service started with enhanced thread management")
+                # Test Kafka connection
+                self.producer.flush(timeout=5)
+
+            except Exception as e:
+                logger.error(f"Failed to verify connections: {e}")
+                self.running = False
+                raise
+
+            # Create threads with enhanced error handling
+            self.threads = []
+            thread_targets = [
+                (self.check_tasks, "TaskProcessor"),
+                (self.consume_agent_results, "ResultConsumer"),
+                (self._monitor_system_health, "SystemMonitor"),
+            ]
+
+            for target, name in thread_targets:
+                thread = self._create_daemon_thread(target, name)
+                thread.start()
+        except Exception as e:
+            logger.error(f"Error starting BOSS service: {e}")
+            raise
+
+        logger.info("BOSS service started successfully")
 
     # works as expected
     def stop(self):
         self.running = False
         self.shutdown_event.set()
+
         for thread in self.threads:
-            if thread.is_alive():
-                thread.join()
+            # force kill threads after 5 seconds
+            thread.join(timeout=5)
+
         if self.client:
             self.client.close()
         if self.producer:
             self.producer.close()
+        if self.result_consumer:
+            self.result_consumer.close()
+
         logger.info("Boss stopped.")
 
     # works as expected

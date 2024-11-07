@@ -70,7 +70,7 @@ class WrapperPing(WrapperAgent):
 
             self.task_logger.info(f"Executing ping command: {' '.join(command)}")
 
-            result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+            result = subprocess.run(command, capture_output=True, text=True, timeout=60)
 
             if result.returncode == 0:
                 output = result.stdout.strip()
@@ -182,8 +182,3 @@ class WrapperPing(WrapperAgent):
                 "error": str(e),
                 "note": "Exception occurred during task execution",
             }
-
-    def start(self):
-        """Start the agent with proper logging"""
-        logger.info(f"Starting {self.agent_id}")
-        super().start()

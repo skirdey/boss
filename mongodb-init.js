@@ -4,39 +4,64 @@ db = db.getSiblingDB('task_db');
 db.createCollection('tasks');
 
 db.tasks.insertMany([
+    // {
+    //     "_id": ObjectId(),
+    //     "notes": "",
+    //     "description": "Ping 1.1.1.1 and 8.8.8.8",
+    //     "status": "Created",
+
+    //     "created_at": new Date(),
+    //     "updated_at": new Date(),
+    //     "evaluation_criteria": "Pings are completed and results are returned",
+    //     "steps": [],
+    //     "audit_trail": [],
+    // },
+    // {
+    //     "_id": ObjectId(),
+    //     "notes": "",
+    //     "description": "Ping 1.1.1.1 and scan its ports",
+    //     "status": "Created",
+
+    //     "created_at": new Date(),
+    //     "updated_at": new Date(),
+    //     "evaluation_criteria": "Pings are completed and results are returned",
+    //     "steps": [],
+    //     "audit_trail": [],
+    // },
+    // {
+    //     "_id": ObjectId(),
+    //     "notes": "",
+    //     "description": "Ping 8.8.8.8",
+    //     "status": "Created",
+
+    //     "created_at": new Date(),
+    //     "updated_at": new Date(),
+    //     "evaluation_criteria": "Ping is completed and results are returned",
+    //     "steps": [],
+    //     "audit_trail": [],
+    // },
+    // {
+    //     "_id": ObjectId(),
+    //     "notes": "",
+    //     "description": "What is the reason of life",
+    //     "status": "Created",
+
+    //     "created_at": new Date(),
+    //     "updated_at": new Date(),
+    //     "evaluation_criteria": "A non-empty answer is returned",
+    //     "current_step_index": null,
+    //     "steps": [],
+    //     "audit_trail": [],
+    // },
     {
         "_id": ObjectId(),
         "notes": "",
-        "description": "Ping 1.1.1.1 and 8.8.8.8",
+        "description": "Network scan http://www.itsecgames.com/",
         "status": "Created",
 
         "created_at": new Date(),
         "updated_at": new Date(),
-        "evaluation_criteria": "Pings are completed and results are returned",
-        "steps": [],
-        "audit_trail": [],
-    },
-    {
-        "_id": ObjectId(),
-        "notes": "",
-        "description": "Ping 8.8.8.8",
-        "status": "Created",
-
-        "created_at": new Date(),
-        "updated_at": new Date(),
-        "evaluation_criteria": "Ping is completed and results are returned",
-        "steps": [],
-        "audit_trail": [],
-    },
-    {
-        "_id": ObjectId(),
-        "notes": "",
-        "description": "What is the reason of life",
-        "status": "Created",
-
-        "created_at": new Date(),
-        "updated_at": new Date(),
-        "evaluation_criteria": "A non-empty answer is returned",
+        "evaluation_criteria": "A network discovery is performed",
         "current_step_index": null,
         "steps": [],
         "audit_trail": [],
@@ -61,6 +86,20 @@ db.agents.insertMany([
         ],
         "status": "active",
 
+    },
+    {
+        "agent_id": "agent_network_scan_ports",
+        "capabilities": [
+            "can scan ports on a given IP or domain and return the results without any additional setup in a single step"
+        ],
+        "status": "active",
+    },
+    {
+        "agent_id": "agent_network_get_ssl_certificate",
+        "capabilities": [
+            "can get the SSL certificate from a given domain, hostname, or IP address and return the results without any additional setup in a single step"
+        ],
+        "status": "active",
     }
 ]);
 

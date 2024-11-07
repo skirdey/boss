@@ -52,7 +52,7 @@ class WrapperConversation(WrapperAgent):
             response = self.anthropic.messages.create(
                 max_tokens=8192,
                 messages=[*messages],
-                model="claude-3-5-sonnet-20241022",
+                model="claude-3-5-haiku-20241022",
             )
 
             end_time = datetime.now(timezone.utc)
@@ -98,47 +98,38 @@ class WrapperConversation(WrapperAgent):
         try:
             # Fetch steps and current step index
             steps = task.get("steps", [])
-            current_step_index = task.get("current_step_index", 0)
+            current_step_index = task.get("current_step_index")
 
-            previous_steps = steps[:current_step_index]
+            # Build context from previous steps
+            previous_steps = (
+                steps[:current_step_index] if current_step_index > 0 else []
+            )
             previous_step_results = "\n".join(
                 [
-                    f"Step {i+1}: {step.get('result', '')}"
+                    f"Step {i+1} Result: {step.get('result', '')}"
                     for i, step in enumerate(previous_steps)
                     if step.get("result")
                 ]
             )
 
-            if current_step_index is None or current_step_index >= len(steps):
-                self.task_logger.info("All steps have been completed.")
-                return {
-                    "task_id": str(task["_id"]),
-                    "result": "All steps completed.",
-                    "success": True,
-                    "metrics": {},
-                }
-
-            # Get the current step
+            # Get current step
             current_step = steps[current_step_index]
             step_description = current_step.get("step_description", "")
 
-            self.task_logger.info(
-                f"Processing step {current_step_index + 1}: {step_description}"
+            # Build message with context
+            messages = []
+
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"Previous step results:\n{previous_step_results}\n---\nCurrent step task:\n{step_description}\n\nProvide a new response that builds upon previous results and addresses this specific step.",
+                }
             )
 
-            if previous_step_results:
-                step_description = (
-                    f"{previous_step_results}\n\nCurrent step:\n{step_description}"
-                )
+            # Process the step
+            conversation_result = self.process_message(messages)
 
-                self.task_logger.info(previous_step_results)
-
-            # Process the step (e.g., as a conversation step)
-            conversation_result = self.process_message(
-                [{"role": "user", "content": step_description}]
-            )
-
-            # Create step result for workflow state manager
+            # Create step result
             step_result = {
                 "task_id": str(task["_id"]),
                 "agent_id": self.agent_id,
@@ -157,23 +148,13 @@ class WrapperConversation(WrapperAgent):
                     "model": conversation_result.model,
                     "metrics": conversation_result.metrics,
                     "timestamp": conversation_result.timestamp.isoformat(),
-                    "conversation_history": [
-                        {"role": "user", "content": step_description}
-                    ],
+                    "conversation_history": messages,
                     "task_context": task.get("context", ""),
                 },
             }
-
-            # Send the result back to the BOSS
-            self.send_result_to_boss(step_result)
 
             return step_result
 
         except Exception as e:
             logger.error(f"Error processing task: {str(e)}")
             return {"success": False, "error": str(e)}
-
-    def start(self):
-        """Start the conversation agent with proper logging"""
-        logger.info(f"Starting {self.agent_id}")
-        super().start()

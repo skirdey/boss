@@ -164,7 +164,12 @@ BOSS is an intelligent task orchestration system that leverages Large Language M
    - Once all steps are completed, BOSS performs a final evaluation to ensure task completion meets all criteria.
 
 Result in UI:
+
+**Ping:**   
 ![Network Ping Example](imgs/ping_agent.png)
+
+**Ping and Port Scan:**
+![Network Ping and Port Scan Example](imgs/ping_network_scan.png)
 
 ## Configuration
 
@@ -181,6 +186,7 @@ KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 - **OPENAI_API_KEY:** API key for accessing OpenAI's services.
 - **MONGODB_URI:** Connection string for the MongoDB database.
 - **KAFKA_BOOTSTRAP_SERVERS:** Address of the Kafka broker.
+- **ANTHROPIC_API_KEY:** API key for accessing Anthropic's services.
 
 ## Agent Integration
 

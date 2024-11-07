@@ -81,6 +81,7 @@ class TaskEvaluationResponse(BaseModel):
         default_factory=list,
         description="List of additional steps required if task is incomplete",
     )
+    explanation: str = Field(..., description="Explanation of the evaluation decision")
 
 
 class TaskComplexityResponse(BaseModel):
@@ -106,6 +107,10 @@ class StepEstimate(BaseModel):
     )
     is_critical: bool = Field(
         description="Whether this step is on the critical path - True or False"
+    )
+
+    requires_previous_step: bool = Field(
+        description="Whether this step requires the previous step to be completed"
     )
 
 
