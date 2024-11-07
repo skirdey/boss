@@ -117,6 +117,7 @@ def test_boss_initialization():
 def test_handle_agent_result_failure():
     """
     Test the handle_agent_result method when the step evaluation fails.
+    Should verify both the step update and the final task status update.
     """
     with patch("boss.MongoClient") as mock_mongo_client, patch(
         "boss.KafkaProducer"
@@ -127,6 +128,7 @@ def test_handle_agent_result_failure():
         mock_db = MagicMock()
         mock_mongo_client.return_value = mock_db
         mock_db.__getitem__.side_effect = lambda name: mock_db
+
         # Update current_step_index to a valid value (e.g., 0)
         task_with_step = sample_task.copy()
         task_with_step["current_step_index"] = 0
@@ -173,10 +175,6 @@ def test_handle_agent_result_failure():
         # Mock task update
         mock_db["tasks"].update_one = MagicMock()
 
-        # Mock _process_task_with_inference and _handle_failed_completion
-        boss._process_task_with_inference = MagicMock()
-        boss._handle_failed_completion = MagicMock()
-
         # Execute
         result = {
             "task_id": sample_task_id,
@@ -187,19 +185,30 @@ def test_handle_agent_result_failure():
         # Assert OpenAI evaluation was called
         boss.call_openai_api_structured.assert_called_once()
 
-        # Assert task was updated to mark the step as failed
-        mock_db["tasks"].update_one.assert_called_once()
-        update_filter, update_values = mock_db["tasks"].update_one.call_args[0]
-        assert update_filter == {"_id": ObjectId(sample_task_id)}
-        assert "steps" in update_values["$set"]
-        assert update_values["$set"]["current_step_index"] is None
-        assert update_values["$set"]["current_agent"] is None
+        # Assert task was updated twice
+        assert mock_db["tasks"].update_one.call_count == 2
 
-        # Assert _process_task_with_inference was not called
-        boss._process_task_with_inference.assert_not_called()
+        # Get the two update calls
+        update_calls = mock_db["tasks"].update_one.call_args_list
 
-        # Assert _handle_failed_completion was called
-        boss._handle_failed_completion.assert_called_once()
+        # First update should be for the step status
+        first_update_filter, first_update_values = update_calls[0][0]
+        assert first_update_filter == {"_id": ObjectId(sample_task_id)}
+        assert "steps" in first_update_values["$set"]
+        assert first_update_values["$set"]["current_step_index"] is None
+        assert first_update_values["$set"]["current_agent"] is None
+        assert first_update_values["$set"]["steps"][0]["state"] == "Failed"
+        assert (
+            "Result does not satisfy"
+            in first_update_values["$set"]["steps"][0]["error"]
+        )
+
+        # Second update should be for the task completion status
+        second_update_filter, second_update_values = update_calls[1][0]
+        assert second_update_filter == {"_id": ObjectId(sample_task_id)}
+        assert second_update_values["$set"]["status"] == "Failed"
+        assert "completion_message" in second_update_values["$set"]
+        assert "updated_at" in second_update_values["$set"]
 
 
 def test_call_openai_api_structured_success():

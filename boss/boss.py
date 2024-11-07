@@ -100,13 +100,23 @@ class BOSS:
             self.shutdown_event.wait(timeout=self.check_interval)
 
     def handle_agent_result(self, result: Dict[str, Any]):
-        """Handle the result received from an agent via Kafka with improved step validation"""
+        """
+        Handle the result received from an agent via Kafka with improved step validation and error handling.
+
+        Args:
+            result (Dict[str, Any]): The result dictionary containing task_id and result data
+        """
         try:
+            # Initialize variables that will be used in multiple scopes
+            next_step_index = None
             task_id = result.get("task_id")
+
+            # Validate basic requirements
             if not task_id:
                 logger.error("Received result without task_id.")
                 return
 
+            # Fetch and validate task
             task = self.tasks_collection.find_one({"_id": ObjectId(task_id)})
             if not task:
                 logger.error(f"Task {task_id} not found in database.")
@@ -122,24 +132,39 @@ class BOSS:
                 logger.error(f"Invalid current_step_index for task {task_id}")
                 return
 
+            # Get current step details
             current_step = steps[current_step_index]
             step_description = current_step.get("step_description", "")
             agent_result = result.get("result", "")
             expected_outcome = current_step.get("expected_outcome", "")
 
-            # Evaluate step result using the dedicated method
+            # Evaluate step result
             evaluation_success = self._evaluate_step_result_with_llm(
                 step_description=step_description,
                 step_result=agent_result,
                 expected_outcome=expected_outcome,
             )
 
-            if evaluation_success:
-                current_step["state"] = TaskState.COMPLETED_STEP.value
-                current_step["result"] = agent_result
-                current_step["updated_at"] = datetime.now(timezone.utc)
+            # Update current step based on evaluation
+            current_step.update(
+                {
+                    "updated_at": datetime.now(timezone.utc),
+                    "result": agent_result if evaluation_success else None,
+                    "state": (
+                        TaskState.COMPLETED_STEP.value
+                        if evaluation_success
+                        else TaskState.FAILED.value
+                    ),
+                }
+            )
 
-                next_step_index = None
+            if not evaluation_success:
+                current_step["error"] = (
+                    "Result does not satisfy the step description and expected outcome."
+                )
+
+            # Find next available step if current step was successful
+            if evaluation_success:
                 for idx, step in enumerate(
                     steps[current_step_index + 1 :], start=current_step_index + 1
                 ):
@@ -147,44 +172,31 @@ class BOSS:
                         next_step_index = idx
                         break
 
-                if next_step_index is not None:
-                    task["current_step_index"] = next_step_index
-
-            else:
-                current_step["state"] = TaskState.FAILED.value
-                current_step["error"] = (
-                    "Result does not satisfy the step description and expected outcome."
-                )
-                current_step["updated_at"] = datetime.now(timezone.utc)
-
-                # Update the task in the database with proper step progression
+            # Prepare update fields
             update_fields = {
                 "steps": steps,
                 "updated_at": datetime.now(timezone.utc),
+                "current_step_index": next_step_index,
+                "current_agent": None,  # Clear agent regardless of next step
             }
 
-            if next_step_index is not None:
-                update_fields["current_step_index"] = next_step_index
-                update_fields["current_agent"] = None  # Clear agent for next assignment
-            else:
-                # If no next step, clear both fields
-                update_fields["current_step_index"] = None
-                update_fields["current_agent"] = None
-
+            # Update the task in database
             self.tasks_collection.update_one(
                 {"_id": ObjectId(task_id)}, {"$set": update_fields}
             )
 
-            # Re-fetch task and process next steps if available
+            # Re-fetch updated task
             updated_task = self.tasks_collection.find_one({"_id": ObjectId(task_id)})
+
+            # Process next steps or perform final evaluation
             if next_step_index is not None:
                 self._process_task_with_inference(updated_task)
             else:
-                # If no next step, perform final evaluation
                 self._perform_final_evaluation(updated_task)
 
         except Exception as e:
-            logger.error(f"Error handling agent result: {e}")
+            logger.error(f"Error handling agent result: {str(e)}", exc_info=True)
+            # Optionally, you might want to add error recovery logic here
 
     def _generate_steps_from_description(self, description: str) -> List[Dict]:
         """Generate steps from task description using OpenAI LLM"""
