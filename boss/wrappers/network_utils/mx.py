@@ -1,7 +1,7 @@
 import socket
 import struct
 
-from wrappers.network_utils.parse_target import parse_target
+from boss.wrappers.network_utils.parse_target import parse_target
 
 
 def get_mx_records(target):

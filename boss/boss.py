@@ -1,6 +1,6 @@
-from boss_prompts import BossPrompts
 from dotenv import load_dotenv
-from models import (
+
+from boss.models import (
     AgentSelectionAnalysis,
     StepEstimationResponse,
     StepResult,
@@ -19,13 +19,15 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
-from events import shutdown_event
 from kafka import KafkaConsumer, KafkaProducer
 from openai import OpenAI
 from pydantic import BaseModel
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
-from utils import serialize_task
+
+from boss.boss_prompts import BossPrompts
+from boss.events import shutdown_event
+from boss.utils import serialize_task
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

@@ -4,7 +4,7 @@ import pytest
 from bson import ObjectId
 
 # Import the functions from utils.py
-from utils import ensure_timezone_aware, get_object_id, serialize_task
+from boss.utils import ensure_timezone_aware, get_object_id, serialize_task
 
 
 # Mock class to simulate Anthropic TextBlock

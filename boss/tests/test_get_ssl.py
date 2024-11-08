@@ -4,7 +4,8 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
-from wrappers.network_utils.ssl_certificate import get_ssl_certificate
+
+from boss.wrappers.network_utils.ssl_certificate import get_ssl_certificate
 
 
 @pytest.fixture

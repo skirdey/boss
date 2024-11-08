@@ -2,7 +2,8 @@ import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
-from wrappers.network_utils.tracert import traceroute
+
+from boss.wrappers.network_utils.tracert import traceroute
 
 
 @pytest.fixture

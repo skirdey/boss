@@ -48,11 +48,11 @@ def test_boss_initialization():
     Test the initialization of the BOSS class.
     """
     # Apply patches before importing BOSS
-    with patch("boss.MongoClient") as mock_mongo_client, patch(
-        "boss.KafkaProducer"
-    ) as mock_kafka_producer, patch("boss.KafkaConsumer") as mock_kafka_consumer, patch(
-        "boss.OpenAI"
-    ) as mock_openai_client:
+    with patch("boss.boss.MongoClient") as mock_mongo_client, patch(
+        "boss.boss.KafkaProducer"
+    ) as mock_kafka_producer, patch(
+        "boss.boss.KafkaConsumer"
+    ) as mock_kafka_consumer, patch("boss.boss.OpenAI") as mock_openai_client:
         # Setup MongoDB mock
         mock_db = MagicMock()
         mock_mongo_client.return_value = mock_db
@@ -77,7 +77,7 @@ def test_boss_initialization():
         mock_openai_client.return_value = mock_openai_instance
 
         # Import BOSS after patches are applied
-        from boss import BOSS
+        from boss.boss import BOSS
 
         # Initialize BOSS
         boss = BOSS(
@@ -119,11 +119,11 @@ def test_handle_agent_result_failure():
     Test the handle_agent_result method when the step evaluation fails.
     Should verify both the step update and the final task status update.
     """
-    with patch("boss.MongoClient") as mock_mongo_client, patch(
-        "boss.KafkaProducer"
-    ) as mock_kafka_producer, patch("boss.KafkaConsumer") as mock_kafka_consumer, patch(
-        "boss.OpenAI"
-    ) as mock_openai_client:
+    with patch("boss.boss.MongoClient") as mock_mongo_client, patch(
+        "boss.boss.KafkaProducer"
+    ) as mock_kafka_producer, patch(
+        "boss.boss.KafkaConsumer"
+    ) as mock_kafka_consumer, patch("boss.boss.OpenAI") as mock_openai_client:
         # Setup MongoDB mock
         mock_db = MagicMock()
         mock_mongo_client.return_value = mock_db
@@ -159,7 +159,7 @@ def test_handle_agent_result_failure():
         mock_openai_client.return_value = mock_openai_instance
 
         # Import BOSS after patches
-        from boss import BOSS
+        from boss.boss import BOSS
 
         # Initialize BOSS
         boss = BOSS(
@@ -215,11 +215,11 @@ def test_call_openai_api_structured_success():
     """
     Test the call_openai_api_structured method for a successful API call.
     """
-    with patch("boss.MongoClient") as mock_mongo_client, patch(
-        "boss.KafkaProducer"
-    ) as mock_kafka_producer, patch("boss.KafkaConsumer") as mock_kafka_consumer, patch(
-        "boss.OpenAI"
-    ) as mock_openai_client:
+    with patch("boss.boss.MongoClient") as mock_mongo_client, patch(
+        "boss.boss.KafkaProducer"
+    ) as mock_kafka_producer, patch(
+        "boss.boss.KafkaConsumer"
+    ) as mock_kafka_consumer, patch("boss.boss.OpenAI") as mock_openai_client:
         # Setup MongoDB mock
         mock_db = MagicMock()
         mock_mongo_client.return_value = mock_db
@@ -239,7 +239,7 @@ def test_call_openai_api_structured_success():
         mock_openai_client.return_value = mock_openai_instance
 
         # Import BOSS after patches
-        from boss import BOSS
+        from boss.boss import BOSS
 
         # Initialize BOSS
         boss = BOSS(
@@ -283,11 +283,11 @@ def test_call_openai_api_structured_failure():
     """
     Test the call_openai_api_structured method when the API call fails.
     """
-    with patch("boss.MongoClient") as mock_mongo_client, patch(
-        "boss.KafkaProducer"
-    ) as mock_kafka_producer, patch("boss.KafkaConsumer") as mock_kafka_consumer, patch(
-        "boss.OpenAI"
-    ) as mock_openai_client:
+    with patch("boss.boss.MongoClient") as mock_mongo_client, patch(
+        "boss.boss.KafkaProducer"
+    ) as mock_kafka_producer, patch(
+        "boss.boss.KafkaConsumer"
+    ) as mock_kafka_consumer, patch("boss.boss.OpenAI") as mock_openai_client:
         # Setup MongoDB mock
         mock_db = MagicMock()
         mock_mongo_client.return_value = mock_db
@@ -307,7 +307,7 @@ def test_call_openai_api_structured_failure():
         mock_openai_client.return_value = mock_openai_instance
 
         # Import BOSS after patches
-        from boss import BOSS
+        from boss.boss import BOSS
 
         # Initialize BOSS
         boss = BOSS(

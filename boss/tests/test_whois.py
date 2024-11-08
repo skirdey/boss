@@ -2,7 +2,8 @@ import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
-from wrappers.network_utils.whois import whois_lookup
+
+from boss.wrappers.network_utils.whois import whois_lookup
 
 
 def test_successful_whois_lookup():

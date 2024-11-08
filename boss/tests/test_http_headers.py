@@ -3,7 +3,8 @@ import socket
 from unittest.mock import Mock, patch
 
 import pytest
-from wrappers.network_utils.http_headers import fetch_http_headers
+
+from boss.wrappers.network_utils.http_headers import fetch_http_headers
 
 
 @pytest.fixture

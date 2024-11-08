@@ -2,7 +2,8 @@ import struct
 from unittest.mock import Mock, patch
 
 import pytest
-from wrappers.network_utils.mx import get_mx_records
+
+from boss.wrappers.network_utils.mx import get_mx_records
 
 
 @pytest.fixture
@@ -59,7 +60,7 @@ def create_dns_response(transaction_id, mx_records):
 @pytest.fixture
 def mock_parse_target():
     """Fixture for mocking parse_target"""
-    with patch("wrappers.network_utils.parse_target") as mock:
+    with patch("boss.wrappers.network_utils.parse_target") as mock:
         yield mock
 
 

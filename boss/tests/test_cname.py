@@ -3,7 +3,8 @@ import struct
 from unittest.mock import Mock, patch
 
 import pytest
-from wrappers.network_utils.cname import get_cname_records
+
+from boss.wrappers.network_utils.cname import get_cname_records
 
 
 @pytest.fixture
