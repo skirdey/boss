@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
+from events import shutdown_event
 from kafka import KafkaConsumer, KafkaProducer
 from openai import OpenAI
 from pydantic import BaseModel
@@ -40,7 +41,6 @@ class BOSS:
     ):
         self.prompts = BossPrompts()
         self.threads = []
-        self.shutdown_event = threading.Event()
 
         self.task_thread = None
         self.monitor_thread = None
@@ -97,7 +97,7 @@ class BOSS:
                 if not self.running:
                     break
                 logger.error(f"Error in consume_agent_results: {e}")
-            self.shutdown_event.wait(timeout=self.check_interval)
+            shutdown_event.wait(timeout=self.check_interval)
 
     def handle_agent_result(self, result: Dict[str, Any]):
         """
@@ -718,7 +718,7 @@ class BOSS:
             for task in tasks:
                 self._process_task_with_inference(task)
 
-            self.shutdown_event.wait(timeout=self.check_interval)
+            shutdown_event.wait(timeout=self.check_interval)
             time.sleep(self.check_interval)
 
     def _create_daemon_thread(self, target, name):
@@ -732,7 +732,7 @@ class BOSS:
 
         try:
             self.running = True
-            self.shutdown_event.clear()
+            shutdown_event.clear()
 
             # Verify connections before starting threads
             try:
@@ -767,11 +767,11 @@ class BOSS:
     # works as expected
     def stop(self):
         self.running = False
-        self.shutdown_event.set()
+        shutdown_event.set()
 
         for thread in self.threads:
             # force kill threads after 5 seconds
-            thread.join(timeout=5)
+            thread.join(timeout=1)
 
         if self.client:
             self.client.close()

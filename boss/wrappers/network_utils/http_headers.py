@@ -33,12 +33,3 @@ def fetch_http_headers(url):
     except Exception as e:
         print(f"Error fetching HTTP headers: {e}")
         return {}
-
-
-# Example usage:
-if __name__ == "__main__":
-    url = "https://developers.inflection.ai"
-    headers = fetch_http_headers(url)
-    print(f"HTTP Headers for {url}:")
-    for key, value in headers.items():
-        print(f"{key}: {value}")

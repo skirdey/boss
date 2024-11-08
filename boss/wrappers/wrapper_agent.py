@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict
 
 import colorlog
+from events import shutdown_event
 from kafka import KafkaConsumer, KafkaProducer
 from openai import OpenAI
 
@@ -53,10 +54,10 @@ class WrapperAgent(ABC):
     def receive(self) -> None:
         """Continuously listen for tasks and process them."""
         logger.info(f"{self.agent_id} started listening for tasks.")
-        while self.running:
+        while self.running and not shutdown_event.is_set():
             try:
                 for message in self.consumer:
-                    if not self.running:
+                    if not self.running or shutdown_event.is_set():
                         break
                     task = message.value
 

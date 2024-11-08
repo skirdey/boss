@@ -1,9 +1,11 @@
 import logging
+import os
+import signal
+import sys
 import threading
-import time
+from typing import Any, List, Tuple
 
-from kafka import KafkaProducer
-from kafka.errors import NoBrokersAvailable
+from events import shutdown_event
 from wrappers.wrapper_conversation import WrapperConversation
 from wrappers.wrapper_get_ssl import WrapperGetSSLCertificateAgent
 from wrappers.wrapper_ping_agent import WrapperPing
@@ -16,93 +18,128 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Global variables to hold component instances
-components = []
-threads = []
-shutdown_event = threading.Event()
+components: List[Any] = []
+threads: List[Tuple[Any, threading.Thread]] = []
+is_shutting_down = threading.Event()
+
+
+def force_exit():
+    """
+    Force exits the application after a timeout.
+    This ensures the app terminates even if some threads are stuck.
+    """
+    logger.warning("Forcing application exit...")
+    os._exit(1)
+
+
+def signal_handler(signum, frame):
+    """
+    Enhanced signal handler that ensures proper shutdown on both Unix and Windows.
+    """
+    if is_shutting_down.is_set():
+        logger.warning("Received second interrupt, forcing immediate exit...")
+        force_exit()
+        return
+
+    logger.info(f"Signal {signum} received. Initiating graceful shutdown.")
+    is_shutting_down.set()
+    shutdown_event.set()
+
+    # Start a timer to force exit if graceful shutdown takes too long
+    force_exit_timer = threading.Timer(5.0, force_exit)
+    force_exit_timer.daemon = True
+    force_exit_timer.start()
 
 
 def start_component(component_cls):
     """
-    Initializes and starts a component in a separate thread.
+    Initializes and starts a component in a separate thread with enhanced error handling.
     """
     try:
         logger.info(f"Initializing component: {component_cls.__name__}")
         component = component_cls()
         components.append(component)
-        thread = threading.Thread(target=component.start)
+        thread = threading.Thread(
+            target=component.start, daemon=True, name=f"{component_cls.__name__}_thread"
+        )
         thread.start()
         threads.append((component, thread))
+        return True
     except Exception as e:
         logger.error(f"Failed to initialize {component_cls.__name__}: {str(e)}")
+        return False
 
 
 def shutdown():
     """
-    Gracefully shuts down all running components.
+    Enhanced graceful shutdown with timeout handling.
     """
-    logger.info("Shutting down components...")
+    if is_shutting_down.is_set():
+        return
+
+    is_shutting_down.set()
+    shutdown_event.set()
+    logger.info("Initiating graceful shutdown of all components...")
+
     for component, thread in threads:
-        component.stop()
-    for component, thread in threads:
-        thread.join(timeout=5)
-    logger.info("All components have been stopped.")
-
-
-def connect_to_kafka(producer):
-    """
-    Attempts to connect to Kafka with retry logic.
-    """
-    max_retries = 5
-    retry_delay = 5  # seconds
-
-    for attempt in range(1, max_retries + 1):
         try:
-            producer.send("test-topic", b"Test message")
-            producer.flush()
-            logger.info("Connected to Kafka successfully.")
-            return
-        except NoBrokersAvailable:
-            if attempt < max_retries:
-                logger.warning(
-                    f"Kafka brokers not available. Retrying in {retry_delay} seconds... (Attempt {attempt}/{max_retries})"
-                )
-                time.sleep(retry_delay)
-            else:
-                logger.error("Failed to connect to Kafka after multiple attempts.")
-                raise
+            logger.info(f"Stopping component: {thread.name}")
+            component.stop()
+            thread.join(timeout=2.0)  # Reduced timeout per component
+
+            if thread.is_alive():
+                logger.warning(f"Component {thread.name} did not stop gracefully")
+        except Exception as e:
+            logger.error(f"Error shutting down {thread.name}: {str(e)}")
+
+    logger.info("Shutdown complete")
 
 
 def main():
     """
-    Main entry point.
+    Enhanced main entry point with proper Windows signal handling.
     """
-    producer = KafkaProducer(bootstrap_servers="127.0.0.1:9092")
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # On Windows, ensure CTRL+C is properly handled
+    if sys.platform == "win32":
+        try:
+            import win32api
+
+            win32api.SetConsoleCtrlHandler(
+                lambda x: signal_handler(signal.SIGINT, None), True
+            )
+        except ImportError:
+            logger.warning(
+                "win32api not available, Windows CTRL+C handling may be limited"
+            )
+
+    components_to_start = [
+        BOSS,
+        WrapperPing,
+        WrapperConversation,
+        WrapperScanPortAgent,
+        WrapperGetSSLCertificateAgent,
+    ]
 
     try:
-        connect_to_kafka(producer)
+        # Start all components
+        for component_cls in components_to_start:
+            if not start_component(component_cls):
+                logger.error(
+                    f"Failed to start {component_cls.__name__}, initiating shutdown"
+                )
+                shutdown()
+                return
 
-        # Start components one at a time to better handle errors
-        start_component(BOSS)
-        logger.info("BOSS component started successfully")
+        logger.info("All components started successfully")
 
-        start_component(WrapperPing)
-        logger.info("Ping agent started successfully")
-
-        start_component(WrapperConversation)
-        logger.info("Conversation agent started successfully")
-
-        start_component(WrapperScanPortAgent)
-        logger.info("Scan ports agent started successfully")
-
-        start_component(WrapperGetSSLCertificateAgent)
-        logger.info("Get SSL agent started successfully")
-
-        # Keep the application running until interrupted
+        # Keep the main thread alive until shutdown is signaled
         while not shutdown_event.is_set():
-            time.sleep(1)
+            shutdown_event.wait(timeout=1.0)
 
-    except KeyboardInterrupt:
-        logger.info("KeyboardInterrupt received. Shutting down.")
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
     finally:

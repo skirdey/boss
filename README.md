@@ -99,7 +99,6 @@ BOSS is an intelligent task orchestration system that leverages Large Language M
    - **Web UI**
    - **Kafka Message Broker**
    - **MongoDB Database**
-   - **Zookeeper** (required for Kafka)
 
 ### Launching BOSS
 
