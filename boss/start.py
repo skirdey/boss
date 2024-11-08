@@ -5,13 +5,12 @@ import sys
 import threading
 from typing import Any, List, Tuple
 
-from events import shutdown_event
-from wrappers.wrapper_conversation import WrapperConversation
-from wrappers.wrapper_get_ssl import WrapperGetSSLCertificateAgent
-from wrappers.wrapper_ping_agent import WrapperPing
-from wrappers.wrapper_scan_ports import WrapperScanPortAgent
-
-from boss import BOSS
+from boss.boss import BOSS
+from boss.events import shutdown_event
+from boss.wrappers.wrapper_conversation import WrapperConversation
+from boss.wrappers.wrapper_get_ssl import WrapperGetSSLCertificateAgent
+from boss.wrappers.wrapper_ping_agent import WrapperPing
+from boss.wrappers.wrapper_scan_ports import WrapperScanPortAgent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
