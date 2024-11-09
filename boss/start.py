@@ -11,6 +11,7 @@ from boss.wrappers.wrapper_conversation import WrapperConversation
 from boss.wrappers.wrapper_get_ssl import WrapperGetSSLCertificateAgent
 from boss.wrappers.wrapper_ping_agent import WrapperPing
 from boss.wrappers.wrapper_scan_ports import WrapperScanPortAgent
+from boss.wrappers.wrapper_whois import WhoisWrapperAgent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -121,6 +122,7 @@ def main():
         WrapperConversation,
         WrapperScanPortAgent,
         WrapperGetSSLCertificateAgent,
+        WhoisWrapperAgent,
     ]
 
     try:

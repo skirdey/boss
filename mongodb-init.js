@@ -61,7 +61,7 @@ db.tasks.insertMany([
 
         "created_at": new Date(),
         "updated_at": new Date(),
-        "evaluation_criteria": "A network discovery is performed",
+        "evaluation_criteria": "Any information is discovered about the target",
         "current_step_index": null,
         "steps": [],
         "audit_trail": [],
@@ -97,7 +97,14 @@ db.agents.insertMany([
     {
         "agent_id": "agent_network_get_ssl_certificate",
         "capabilities": [
-            "can get the SSL certificate from a given domain, hostname, or IP address and return the results without any additional setup in a single step"
+            "can get the SSL certificate from a given domain, hostname, or IP address and return the results without any additional setup in a single step. This agent might also return no certificate information if resource doesn't employ SSL certificate."
+        ],
+        "status": "active",
+    },
+    {
+        "agent_id": "agent_network_whois_lookup",
+        "capabilities": [
+            "can perform a whois lookup on a given domain, hostname, or IP address and return the results without any additional setup in a single step"
         ],
         "status": "active",
     }

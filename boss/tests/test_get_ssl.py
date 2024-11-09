@@ -77,7 +77,7 @@ def test_connection_timeout():
         "socket.create_connection", side_effect=socket.timeout("Connection timed out")
     ):
         result = get_ssl_certificate("example.com")
-        assert result == {}
+        assert result == "resource doesn't employ SSL certificate"
 
 
 def test_ssl_error():
@@ -85,7 +85,7 @@ def test_ssl_error():
     with patch("socket.create_connection") as mock_socket:
         with patch("ssl.SSLContext.wrap_socket", side_effect=ssl.SSLError("SSL error")):
             result = get_ssl_certificate("example.com")
-            assert result == {}
+            assert result == "resource doesn't employ SSL certificate"
 
 
 def test_invalid_certificate_format():
@@ -107,7 +107,7 @@ def test_invalid_certificate_format():
             mock_wrap_socket.return_value.__enter__.return_value = mock_ssl_socket
 
             result = get_ssl_certificate("example.com")
-            assert result == {}
+            assert result == "resource doesn't employ SSL certificate"
 
 
 def test_missing_certificate_fields():
@@ -125,4 +125,6 @@ def test_missing_certificate_fields():
             mock_wrap_socket.return_value.__enter__.return_value = mock_ssl_socket
 
             result = get_ssl_certificate("example.com")
-            assert result == {}  # Should return empty dict on error
+            assert (
+                result == "resource doesn't employ SSL certificate"
+            )  # Should return empty dict on error
