@@ -20,7 +20,7 @@ class GetSSLCertificateCommand(BaseModel):
     """Model for get SSL certificate command parameters"""
 
     target: str = Field(
-        description="The domain, hostname, or IP address to retrieve the SSL certificate from. Avoid providing protocols like https or http."
+        description="Extract hostname for server_hostname parameter in get_ssl_certificate function that uses ssl python library to download the certificate from the target host."
     )
 
 
@@ -128,21 +128,7 @@ class WrapperGetSSLCertificateAgent(WrapperAgent):
             current_step = steps[current_step_index]
             step_description = current_step.get("step_description", "")
 
-            # Collect previous steps' results
-            previous_steps = steps[:current_step_index]
-            previous_step_results = "\n".join(
-                [
-                    step.get("result", "")
-                    for step in previous_steps
-                    if step.get("result")
-                ]
-            )
-
-            # Combine previous results with the current step description if available
-            if previous_step_results:
-                task_prompt = f"Previous step results:\n{previous_step_results}\n\nCurrent step:\n{step_description}"
-            else:
-                task_prompt = f"Current step:\n{step_description}"
+            task_prompt = f"Current step:\n{step_description}"
 
             # Parse the command using structured output
             parsed_command = self._call_openai_api(task_prompt)

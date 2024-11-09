@@ -13,6 +13,8 @@ class BossPrompts:
 2. Identifying natural breakpoints between different capabilities
 3. Ensuring steps are atomic and independently verifiable
 4. Considering available agent capabilities when planning
+5. Organize steps in order of growing benefits - start with steps that will yield most useful information for future steps
+6. In certain situations expected outcome can be just execution of the step, like `ping` command that can not reach the target, but it can still be useful for future steps
 
 When generating steps, prioritize:
 - Clarity and precision in step descriptions
@@ -50,6 +52,7 @@ Respond in JSON format matching the StepEstimationResponse model with:
 3. Identify any gaps or issues
 4. Recommend corrections or additional steps if needed
 5. Assess result quality and completeness
+6. If the step has no specific result, like `ping` command that can not reach the target, but it can still be useful for future steps, return success as True
 
 Focus on objective evaluation using:
 - Explicit success criteria

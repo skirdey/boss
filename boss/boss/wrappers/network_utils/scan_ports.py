@@ -17,7 +17,13 @@ async def scan_port(ip, port, timeout):
         writer.close()
         await writer.wait_closed()
         return port, service
-    except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+    except (asyncio.TimeoutError, ConnectionRefusedError, OSError) as e:
+        # Log the exception and return None
+        print(f"Port {port} closed or unreachable: {e}")
+        return None
+    except Exception as e:
+        # Catch any other exceptions
+        print(f"Unexpected error on port {port}: {e}")
         return None
 
 
@@ -36,17 +42,22 @@ async def scan_single_ip(ip, ports, timeout, semaphore):
     return sorted(open_ports, key=lambda x: x[0])
 
 
-def scan_ports(target, timeout=0.5, max_concurrent=100, port_range=(1, 4000)):
+# Modify the scan_ports function to accept a list of ports
+def scan_ports(target, ports_to_scan, timeout=0.5, max_concurrent=100):
     """
     Asynchronously scans TCP ports on the specified target and returns a report.
 
     :param target: The target as a URL, hostname, or IP address.
+    :param ports_to_scan: List of ports to scan.
     :param timeout: Timeout in seconds for each port scan attempt.
     :param max_concurrent: Maximum number of concurrent connections.
-    :param port_range: Tuple indicating the range of ports to scan.
     :return: A formatted string listing all open ports and their services.
     """
-    hostname, ip_addresses = parse_target(target)
+    try:
+        hostname, ip_addresses = parse_target(target)
+    except Exception as e:
+        print(f"Error parsing target: {e}")
+        return ""
 
     if not ip_addresses:
         print("No IP addresses to scan.")
@@ -57,14 +68,20 @@ def scan_ports(target, timeout=0.5, max_concurrent=100, port_range=(1, 4000)):
         scan_results = {}
         for ip in ip_addresses:
             print(f"\nStarting scan on IP: {ip}")
-            open_ports = await scan_single_ip(
-                ip, range(*port_range), timeout, semaphore
-            )
-            scan_results[ip] = open_ports
-            print(f"Scan on {ip} completed. {len(open_ports)} open ports found.")
+            try:
+                open_ports = await scan_single_ip(ip, ports_to_scan, timeout, semaphore)
+                scan_results[ip] = open_ports
+                print(f"Scan on {ip} completed. {len(open_ports)} open ports found.")
+            except Exception as e:
+                print(f"Error scanning IP {ip}: {e}")
+                continue
         return scan_results
 
-    scan_results = asyncio.run(main())
+    try:
+        scan_results = asyncio.run(main())
+    except Exception as e:
+        print(f"Error during asynchronous scanning: {e}")
+        return ""
 
     # Format the results similar to Nmap
     report = ""

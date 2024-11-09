@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class PingCommand(BaseModel):
     """Model for ping command parameters"""
 
-    target: str = Field(description="The domain or IP address to ping")
+    target: str = Field(description="FQDN or IP address to ping.")
 
 
 class WrapperPing(WrapperAgent):
@@ -44,7 +44,7 @@ class WrapperPing(WrapperAgent):
                 messages=[
                     {
                         "role": "system",
-                        "content": "Extract the ping command parameters from the task description.",
+                        "content": "Extract the FQDN or IP address from the provided text to be used as a target for 'ping' command. Remove http or https or www from the target.",
                     },
                     {"role": "user", "content": prompt},
                 ],
@@ -72,14 +72,9 @@ class WrapperPing(WrapperAgent):
 
             result = subprocess.run(command, capture_output=True, text=True, timeout=60)
 
-            if result.returncode == 0:
-                output = result.stdout.strip()
-                self.task_logger.info(f"Ping successful: {output}")
-                return output
-            else:
-                error_output = result.stderr.strip()
-                self.task_logger.error(f"Ping failed: {error_output}")
-                return f"Ping failed: {error_output}"
+            output = result.stdout.strip() + "\n" + result.stderr.strip()
+            self.task_logger.info(f"Ping successful: {output}")
+            return output
 
         except subprocess.TimeoutExpired:
             self.task_logger.error("Ping command timed out.")

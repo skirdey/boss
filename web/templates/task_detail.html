@@ -104,6 +104,14 @@
                                 </th>
                                 <td class="px-6 py-4 text-sm text-gray-500">{{ task.description }}</td>
                             </tr>
+                            {% if task.evaluation_criteria %}
+                            <tr>
+                                <th scope="row"
+                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Evaluation
+                                    Criteria</th>
+                                <td class="px-6 py-4 text-sm text-gray-500">{{ task.evaluation_criteria }}</td>
+                            </tr>
+                            {% endif %}
                             <tr>
                                 <th scope="row"
                                     class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Status</th>
@@ -180,6 +188,9 @@
                         <div>
                             <h3 class="text-sm font-medium text-gray-900">Step {{ step.step_number }}</h3>
                             <p class="mt-1 text-sm text-gray-500">{{ step.step_description }}</p>
+                            {% if step.expected_outcome %}
+                            <p class="mt-1 text-sm text-gray-500">Expected Outcome: {{ step.expected_outcome }}</p>
+                            {% endif %}
                         </div>
                         <div>
                             <span class="status-badge status-{{ step.state.lower() }}">{{ step.state }}</span>
@@ -200,6 +211,15 @@
                         <h4 class="text-sm font-medium text-gray-900 mb-2">Result</h4>
                         <div class="bg-gray-100 rounded-md p-4">
                             <pre class="preserve-whitespace text-gray-600">{{ step.result }}</pre>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if step.error %}
+                    <div class="mt-4">
+                        <h4 class="text-sm font-medium text-gray-900 mb-2">Error</h4>
+                        <div class="bg-red-100 rounded-md p-4">
+                            <pre class="preserve-whitespace text-red-600">{{ step.error }}</pre>
                         </div>
                     </div>
                     {% endif %}

@@ -146,25 +146,25 @@ class BOSS:
                 expected_outcome=expected_outcome,
             )
 
-            # Update current step based on evaluation
-            current_step.update(
-                {
-                    "updated_at": datetime.now(timezone.utc),
-                    "result": agent_result if evaluation_success else None,
-                    "state": (
-                        TaskState.COMPLETED_STEP.value
-                        if evaluation_success
-                        else TaskState.FAILED.value
-                    ),
-                }
+            state = (
+                TaskState.COMPLETED_STEP.value
+                if evaluation_success
+                else TaskState.FAILED.value
             )
 
+            update_fields = {
+                f"steps.{current_step_index}.updated_at": datetime.now(timezone.utc),
+                f"steps.{current_step_index}.result": agent_result,
+                f"steps.{current_step_index}.state": state,
+                "updated_at": datetime.now(timezone.utc),
+                "current_agent": None,
+            }
+
             if not evaluation_success:
-                current_step["error"] = (
+                update_fields[f"steps.{current_step_index}.error"] = (
                     "Result does not satisfy the step description and expected outcome."
                 )
 
-            # Find next available step if current step was successful
             if evaluation_success:
                 for idx, step in enumerate(
                     steps[current_step_index + 1 :], start=current_step_index + 1
@@ -173,23 +173,17 @@ class BOSS:
                         next_step_index = idx
                         break
 
-            # Prepare update fields
-            update_fields = {
-                "steps": steps,
-                "updated_at": datetime.now(timezone.utc),
-                "current_step_index": next_step_index,
-                "current_agent": None,  # Clear agent regardless of next step
-            }
+            update_fields["current_step_index"] = next_step_index
 
-            # Update the task in database
-            self.tasks_collection.update_one(
+            result = self.tasks_collection.update_one(
                 {"_id": ObjectId(task_id)}, {"$set": update_fields}
             )
 
-            # Re-fetch updated task
+            if result.modified_count == 0:
+                logger.error(f"Failed to update task {task_id} in database.")
+
             updated_task = self.tasks_collection.find_one({"_id": ObjectId(task_id)})
 
-            # Process next steps or perform final evaluation
             if next_step_index is not None:
                 self._process_task_with_inference(updated_task)
             else:
@@ -197,7 +191,6 @@ class BOSS:
 
         except Exception as e:
             logger.error(f"Error handling agent result: {str(e)}", exc_info=True)
-            # Optionally, you might want to add error recovery logic here
 
     def _generate_steps_from_description(self, description: str) -> List[Dict]:
         """Generate steps from task description using OpenAI LLM"""
@@ -306,6 +299,7 @@ class BOSS:
                 2. Match or progress towards the expected outcome
                 3. Provide unique value not covered in previous steps
                 4. Be concrete and specific rather than generic
+                5. If the step has no specific result, like `ping` command that can not reach the target, but it can still be useful for future steps, return success as True
                 """,
                 step_result=step_result,
             )
@@ -313,7 +307,7 @@ class BOSS:
             evaluation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=TaskEvaluationResponse,
-                model="gpt-4o",
+                model="gpt-4o-mini",
             )
 
             return evaluation.success

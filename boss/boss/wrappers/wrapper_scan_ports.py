@@ -2,8 +2,9 @@
 
 import logging
 import os
+import re
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -22,7 +23,10 @@ class ScanPortsCommand(BaseModel):
     """Model for scan ports command parameters"""
 
     target: str = Field(
-        description="The domain, hostname, or IP address to scan. Avoid providing https or http protocols, they are not required. "
+        description=(
+            "The domain, hostname, or IP address to scan. Avoid providing https or http protocols, "
+            "they are not required."
+        )
     )
 
 
@@ -46,7 +50,7 @@ class WrapperScanPortAgent(WrapperAgent):
                 messages=[
                     {
                         "role": "system",
-                        "content": "Extract the scan ports command parameters from the task description. ",
+                        "content": "Extract the scan ports command parameters from the task description.",
                     },
                     {"role": "user", "content": prompt},
                 ],
@@ -64,9 +68,44 @@ class WrapperScanPortAgent(WrapperAgent):
             logger.error(f"OpenAI API request failed: {str(e)}")
             raise
 
+    def get_ports_to_scan(self, previous_steps_info: str) -> List[int]:
+        """Use LLM to determine which ports to scan based on previous steps"""
+        try:
+            completion = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "As an expert network engineer, given the previous steps information, "
+                            "suggest a list of TCP ports that should be scanned. "
+                            "Provide the list as comma-separated numbers."
+                        ),
+                    },
+                    {"role": "user", "content": previous_steps_info},
+                ],
+            )
+
+            # Parse the output to get the list of ports
+            port_list_str = completion.choices[0].message.content.strip()
+            # Extract integers from the string
+            ports = [int(port) for port in re.findall(r"\b\d+\b", port_list_str)]
+            logger.info(f"Ports to scan determined by LLM: {ports}")
+            return ports
+
+        except Exception as e:
+            self.task_logger.error(
+                f"An error occurred while determining ports to scan: {str(e)}"
+            )
+            # Return a default port list in case of error
+            default_ports = list(range(1, 1025))  # Common ports
+            logger.info(f"Using default ports to scan: {default_ports}")
+            return default_ports
+
     def execute_scan_ports(
         self,
         target: str,
+        ports_to_scan: List[int],
         timeout: float = 0.5,
         max_concurrent: int = 10,
     ) -> str:
@@ -78,7 +117,10 @@ class WrapperScanPortAgent(WrapperAgent):
 
             start_time = datetime.now(timezone.utc)
             scan_result = scan_ports(
-                target=target, timeout=timeout, max_concurrent=max_concurrent
+                target=target,
+                ports_to_scan=ports_to_scan,
+                timeout=timeout,
+                max_concurrent=max_concurrent,
             )
             execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
@@ -94,7 +136,6 @@ class WrapperScanPortAgent(WrapperAgent):
     def is_valid_target(self, target: str) -> bool:
         """Validate if the target is a valid domain, hostname, or IP address"""
         import ipaddress
-        import re
 
         # Validate IP address
         try:
@@ -141,14 +182,17 @@ class WrapperScanPortAgent(WrapperAgent):
 
             # Combine previous results with the current step description if available
             if previous_step_results:
-                task_prompt = f"Previous step results:\n{previous_step_results}\n\nCurrent step:\n{step_description}"
+                previous_steps_info = (
+                    f"Previous step results:\n{previous_step_results}\n\n"
+                    f"Current step:\n{step_description}"
+                )
             else:
-                task_prompt = f"Current step:\n{step_description}"
+                previous_steps_info = f"Current step:\n{step_description}"
 
             # Parse the command using structured output
-            parsed_command = self._call_openai_api(task_prompt)
+            parsed_command = self._call_openai_api(previous_steps_info)
 
-            logger.info(f"Using command parameters: target={parsed_command.target}, ")
+            logger.info(f"Using command parameters: target={parsed_command.target}")
 
             # Validate the target
             if not self.is_valid_target(parsed_command.target):
@@ -158,15 +202,30 @@ class WrapperScanPortAgent(WrapperAgent):
                     "note": "Validation failed",
                 }
 
+            # Use LLM to determine ports to scan
+            ports_to_scan = self.get_ports_to_scan(previous_steps_info)
+            if not ports_to_scan:
+                self.task_logger.error("Failed to get ports to scan from LLM")
+                return {
+                    "task_id": str(task["_id"]),
+                    "result": "Failed to determine ports to scan",
+                    "note": "LLM did not provide any ports to scan",
+                }
+
             # Execute the port scan
-            scan_result = self.execute_scan_ports(target=parsed_command.target)
+            scan_result = self.execute_scan_ports(
+                target=parsed_command.target, ports_to_scan=ports_to_scan
+            )
 
             # Prepare the result to send back to BOSS
             result = {
                 "task_id": str(task["_id"]),
                 "agent_id": self.agent_id,
                 "result": scan_result,
-                "metadata": {"target": parsed_command.target},
+                "metadata": {
+                    "target": parsed_command.target,
+                    "ports_scanned": ports_to_scan,
+                },
             }
 
             return result
