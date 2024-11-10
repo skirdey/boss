@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -24,19 +24,18 @@ class RESTRequestCommand(BaseModel):
 
     url: str = Field(description="Target URL for the REST request")
     method: str = Field(description="HTTP method (GET, POST, PUT, DELETE, etc.)")
-    headers: Dict[str, str] = Field(default_factory=dict, description="HTTP headers")
-    body: Optional[Dict[str, Any]] = Field(
-        default_factory=dict, description="Request body"
+    headers: Dict[str, str] = Field(
+        description="HTTP headers",
     )
-    auth_type: Optional[str] = Field(
-        description="Authentication type (None, Basic, Bearer, OAuth, JWT)"
+    body: dict[str, Any] = Field(description="Request body")
+    auth_type: str = Field(
+        description="Authentication type (None, Basic, Bearer, OAuth, JWT)",
     )
-    auth_params: Optional[Dict[str, str]] = Field(
-        default_factory=dict,
+    auth_params: dict[str, str] = Field(
         description="Authentication parameters (tokens, credentials, etc.)",
     )
-    test_scenarios: List[str] = Field(
-        description="List of test scenarios to execute (e.g., normal, malformed_token, expired_token)"
+    test_scenarios: list[str] = Field(
+        description="List of test scenarios to execute (e.g., normal, malformed_token, expired_token)",
     )
 
 

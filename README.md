@@ -40,36 +40,65 @@ BOSS is an intelligent task orchestration system that leverages Large Language M
 ## Architecture
 
 ```plaintext
-┌───────────────────────────────────────────────────┐
-│                 BOSS Core System                   │
-├───────────────────────────────────────────────────┤
-│ ┌─────────────┐  ┌──────────────┐  ┌──────────┐  │
-│ │Task Analysis│  │Agent Selection│  │Monitoring│  │
-│ └─────────────┘  └──────────────┘  └──────────┘  │
-│ ┌─────────────┐  ┌──────────────┐  ┌──────────┐  │
-│ │Retry Logic  │  │Error Handling│  │Adaptation │  │
-│ └─────────────┘  └──────────────┘  └──────────┘  │
-└─────────────────────┬─────────────────────────────┘
-                      │
-┌─────────────────────▼─────────────────────────────┐
-│                Message Bus                         │
-│                  (Kafka)                           │
-└─────────────────────┬─────────────────────────────┘
-                      │
-┌─────────────────────▼─────────────────────────────┐
-│               Agent Network                        │
-├───────────────┬───────────────┬───────────────────┤
-│    Agent 1    │    Agent 2    │     Agent N       │
-│ (WrapperAgent │ (WrapperAgent │ (WrapperAgent     │
-│    Subclass)  │    Subclass)  │    Subclass)      │
-└───────────────┴───────────────┴───────────────────┘
++----------------------------------------------------------------------------------------------------------+
+|                                            BOSS OPERATING SYSTEM                                         |
+|                                    (Brain Operating System & Scheduler)                                  |
++----------------------------------------------------------------------------------------------------------+
+
+                                          [Task Scheduler]
+                                          (10s interval)
+                                               |
+                                               v
+                  +-----------------------> Task Processor <--------------------+
+                  |                             |                              |
+                  |                             v                              |
+                  |                    +----------------+                      |
+                  |                    | LLM Planning   |                      |
+                  |                    | - Step Gen     |                      |
+                  |                    | - Evaluation   |                      |
+                  |                    | - Agent Select |                      |
+                  |                    +----------------+                      |
+                  |                             |                              |
+        +-----------------+                     v                    +-----------------+
+        |    MongoDB     | <------------> Message Bus (Kafka) <---> | System Monitor  |
+        | - Tasks        |                     |                    | - Health Checks |
+        | - Agent Status |                     v                    +-----------------+
+        +-----------------+           +------------------+
+                                     |   Agent Network   |
+                                     |   +-----------+   |
+                                     |   | Network   |   |
+                                     |   |  - Ping   |   |
+                                     |   |  - WHOIS  |   |
+                                     |   |  - SSL    |   |
+                                     |   +-----------+   |
+                                     |   |   API     |   |
+                                     |   | - REST    |   |
+                                     |   | - WebSock |   |
+                                     |   +-----------+   |
+                                     +------------------+
+                                             ^
+                                             |
+                                     +------------------+
+                                     | Result Consumer  |
+                                     +------------------+
+
+Data Flow:
+----------
+1. Scheduler checks for tasks every 10s
+2. Task Processor uses LLM to:
+   - Generate steps
+   - Evaluate results
+   - Select appropriate agents
+3. Tasks dispatched via Kafka
+4. Agents execute tasks
+5. Results collected by Consumer
+6. MongoDB stores state
+7. Monitor ensures system health
+
+Process Loop:
+------------
+Check Tasks (10s) -> Process -> Plan (LLM) -> Execute (Agents) -> Collect Results -> Update State -> Repeat
 ```
-
-### Components
-
-- **BOSS Core System:** Manages task orchestration, agent selection, monitoring, and error handling.
-- **Message Bus (Kafka):** Facilitates communication between BOSS and agents.
-- **Agent Network:** Comprises various agents implemented as subclasses of `WrapperAgent`, each tailored to specific capabilities.
 
 ## Quick Start
 
@@ -135,32 +164,6 @@ BOSS is an intelligent task orchestration system that leverages Large Language M
        agent.start()
    ```
 
-2. **Run the Agent:**
-   ```bash
-   python start.py
-   ```
-   The agent will start listening for tasks assigned to it via Kafka and send back results upon completion.
-
-## How It Works
-
-1. **Task Submission**
-   - Tasks are submitted to BOSS via Kafka.
-   - BOSS analyzes the task using LLMs and determines the required steps and resources.
-
-2. **Task Orchestration**
-   - BOSS breaks down the task into manageable steps.
-   - Each step is assigned to the most suitable agent based on capabilities.
-
-3. **Agent Execution**
-   - Agents receive tasks through Kafka.
-   - Upon processing, agents send back results to BOSS.
-
-4. **Monitoring & Adaptation**
-   - BOSS monitors task progress and agent performance in real-time.
-   - Handles failures with retry strategies or escalates to human intervention if necessary.
-
-5. **Final Evaluation**
-   - Once all steps are completed, BOSS performs a final evaluation to ensure task completion meets all criteria.
 
 Result in UI:
 

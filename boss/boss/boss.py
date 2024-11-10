@@ -294,12 +294,8 @@ class BOSS:
                 Step Description: {step_description}
                 Expected Outcome: {expected_outcome}
                 
-                The step result should:
-                1. Directly address the step description
-                2. Match or progress towards the expected outcome
-                3. Provide unique value not covered in previous steps
-                4. Be concrete and specific rather than generic
-                5. If the step has no specific result, like `ping` command that can not reach the target, but it can still be useful for future steps, return success as True
+                The step result should address at least some of the step requirements, but sometimes might not be exact. 
+
                 """,
                 step_result=step_result,
             )
