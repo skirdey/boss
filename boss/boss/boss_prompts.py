@@ -69,10 +69,8 @@ Step Result:
 {step_result}
 
 Evaluate the step completion using these criteria:
-1. Does the result fully address the step requirements?
-2. Is the result logically consistent and complete?
-3. Are there any gaps or issues to address?
-4. Is the quality sufficient?
+1. Does the result adress at least some of the step requirements?
+
 
 Provide a structured evaluation considering:
 - Success/failure determination

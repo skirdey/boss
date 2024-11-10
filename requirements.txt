@@ -42,7 +42,7 @@ pytest-mock==3.14.0
 pytest-xdist==3.6.1
 python-dotenv==1.0.1
 python-nmap==0.7.1
-pywin32==308
+# pywin32==308
 PyYAML==6.0.2
 requests==2.32.3
 six==1.16.0
