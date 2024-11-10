@@ -2,7 +2,6 @@ annotated-types==0.7.0
 anthropic==0.37.1
 anyio==4.6.2.post1
 blinker==1.8.2
--e git+ssh://git@github.com/skirdey/boss.git@455f1d030deb564b0a543295f6bbfa1eaae102df#egg=boss
 certifi==2024.8.30
 cffi==1.17.1
 charset-normalizer==3.4.0
