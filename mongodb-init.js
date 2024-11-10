@@ -56,12 +56,12 @@ db.tasks.insertMany([
     {
         "_id": ObjectId(),
         "notes": "",
-        "description": "Network scan http://www.itsecgames.com/",
+        "description": "find vulnerabilities on 127.0.0.1:8080/WebGoat and 127.0.0.1:9090/WebWolf",
         "status": "Created",
 
         "created_at": new Date(),
         "updated_at": new Date(),
-        "evaluation_criteria": "Any information is discovered about the target",
+        "evaluation_criteria": "Any information or entry points are discovered about the target",
         "current_step_index": null,
         "steps": [],
         "audit_trail": [],
@@ -106,6 +106,21 @@ db.agents.insertMany([
         "capabilities": [
             "can perform a whois lookup on a given domain, hostname, or IP address and return the results without any additional setup in a single step"
         ],
+        "status": "active",
+    },
+    {
+        "agent_id": "agent_network_dig_lookup",
+        "capabilities": ["can perform a dig lookup on a given domain and return the results without any additional setup in a single step"],
+        "status": "active",
+    },
+    {
+        "agent_id": "agent_rest_tester",
+        "capabilities": ["can test REST endpoints by sending requests and receiving responses"],
+        "status": "active",
+    },
+    {
+        "agent_id": "agent_websocket_tester",
+        "capabilities": ["can test WebSocket endpoints by sending messages and receiving responses"],
         "status": "active",
     }
 ]);

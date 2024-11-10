@@ -8,9 +8,12 @@ from typing import Any, List, Tuple
 from boss.boss import BOSS
 from boss.events import shutdown_event
 from boss.wrappers.wrapper_conversation import WrapperConversation
+from boss.wrappers.wrapper_dig import DigWrapperAgent
 from boss.wrappers.wrapper_get_ssl import WrapperGetSSLCertificateAgent
 from boss.wrappers.wrapper_ping_agent import WrapperPing
+from boss.wrappers.wrapper_rest import WrapperRESTTestAgent
 from boss.wrappers.wrapper_scan_ports import WrapperScanPortAgent
+from boss.wrappers.wrapper_websocket import WrapperWebSocketTestAgent
 from boss.wrappers.wrapper_whois import WhoisWrapperAgent
 
 # Configure logging
@@ -123,6 +126,9 @@ def main():
         WrapperScanPortAgent,
         WrapperGetSSLCertificateAgent,
         WhoisWrapperAgent,
+        DigWrapperAgent,
+        WrapperRESTTestAgent,
+        WrapperWebSocketTestAgent,
     ]
 
     try:

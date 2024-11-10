@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -150,7 +151,7 @@ class WrapperGetSSLCertificateAgent(WrapperAgent):
             result = {
                 "task_id": str(task["_id"]),
                 "agent_id": self.agent_id,
-                "result": cert_result,
+                "result": json.dumps(cert_result),
                 "metadata": {"target": parsed_command.target},
             }
 

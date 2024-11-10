@@ -57,5 +57,45 @@ services:
     ports:
       - '5000:5000'
 
+  webgoat:
+    image: webgoat/webgoat:latest
+    container_name: webgoat
+    ports:
+      - "8080:8080"
+    environment:
+      - WEBGOAT_HOST=webgoat
+      - WEBGOAT_PORT=8080
+      - WEBWOLF_HOST=webwolf
+      - WEBWOLF_PORT=9090
+    volumes:
+      - webgoat_data:/home/webgoat/.webgoat
+    networks:
+      - webgoat_net
+    restart: unless-stopped
+
+  webwolf:
+    image: webgoat/webgoat:latest
+    container_name: webwolf
+    ports:
+      - "9090:9090"
+    command: --spring.profiles.active=webwolf
+    environment:
+      - WEBGOAT_HOST=webgoat
+      - WEBGOAT_PORT=8080
+      - WEBWOLF_HOST=webwolf
+      - WEBWOLF_PORT=9090
+    volumes:
+      - webwolf_data:/home/webgoat/.webgoat
+    networks:
+      - webgoat_net
+    restart: unless-stopped
+
 volumes:
   kafka_data:
+  webgoat_data:
+  webwolf_data:
+
+
+networks:
+  webgoat_net:
+    driver: bridge

@@ -1,12 +1,12 @@
-import json
 import logging
 import os
-import socket
 from datetime import datetime, timezone
 from typing import Any, Dict
 
 from pydantic import BaseModel, Field, ValidationError
 
+# Import the pure Python dig implementation
+from boss.wrappers.network_utils.dig import PythonDig
 from boss.wrappers.wrapper_agent import WrapperAgent
 
 logging.basicConfig(
@@ -17,23 +17,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class WhoisLookupCommand(BaseModel):
-    """Model for whois lookup command parameters"""
+class DigLookupCommand(BaseModel):
+    """Model for dig lookup command parameters"""
 
-    target: str = Field(description="Domain name to be used for WHOIS lookup.")
+    target: str = Field(description="Domain name to be used for DNS lookup.")
 
 
-class WhoisWrapperAgent(WrapperAgent):
+class DigWrapperAgent(WrapperAgent):
     def __init__(
         self,
-        agent_id="agent_network_whois_lookup",
+        agent_id="agent_network_dig_lookup",
         kafka_bootstrap_servers="localhost:9092",
     ):
         super().__init__(agent_id, kafka_bootstrap_servers)
         self.setup_task_logger()
+        self.dig = PythonDig()  # Initialize the dig implementation
 
-    def _call_openai_api(self, prompt: str) -> WhoisLookupCommand:
-        """Call OpenAI API with structured output parsing for WHOIS lookup command"""
+    def _call_openai_api(self, prompt: str) -> DigLookupCommand:
+        """Call OpenAI API with structured output parsing for DIG lookup command"""
         if not os.getenv("OPENAI_API_KEY"):
             raise ValueError("OPENAI_API_KEY environment variable is not set")
 
@@ -43,11 +44,11 @@ class WhoisWrapperAgent(WrapperAgent):
                 messages=[
                     {
                         "role": "system",
-                        "content": "Extract the WHOIS lookup command parameters from the task description.",
+                        "content": "Extract the DNS lookup command parameters from the task description.",
                     },
                     {"role": "user", "content": prompt},
                 ],
-                response_format=WhoisLookupCommand,
+                response_format=DigLookupCommand,
             )
 
             parsed_command = completion.choices[0].message.parsed
@@ -61,59 +62,32 @@ class WhoisWrapperAgent(WrapperAgent):
             logger.error(f"OpenAI API request failed: {str(e)}")
             raise
 
-    def execute_whois_lookup(
-        self,
-        target: str,
-    ) -> Dict[str, Any]:
-        """Execute WHOIS lookup for the given domain"""
-        tld = target.split(".")[-1]
-        if tld in ["com", "net", "org", "info", "biz"]:
-            server = "whois.verisign-grs.com"
-        elif tld == "io":
-            server = "whois.nic.io"
-        else:
-            server = "whois.iana.org"
-
-        port = 43
-        query = target + "\r\n"
-
+    def execute_dig_lookup(self, target: str) -> Dict[str, Any]:
+        """Execute DNS lookup for the given domain using PythonDig"""
         try:
-            self.task_logger.info(f"Executing WHOIS lookup with target={target}")
+            self.task_logger.info(f"Executing DIG lookup with target={target}")
             start_time = datetime.now(timezone.utc)
 
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(10)
-            sock.connect((server, port))
-            sock.sendall(query.encode())
-            response = b""
-            while True:
-                data = sock.recv(4096)
-                if not data:
-                    break
-                response += data
-            sock.close()
+            # Use the PythonDig implementation
+            dig_result = self.dig.format_results(self.dig.dig(target))
 
             execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-
             self.task_logger.info(
-                f"WHOIS lookup completed in {execution_time:.2f} seconds."
+                f"DIG lookup completed in {execution_time:.2f} seconds."
             )
-            return {"whois_data": response.decode()}
+
+            return dig_result
 
         except Exception as e:
-            self.task_logger.error(f"An error occurred during WHOIS lookup: {str(e)}")
-            return {"error": f"An error occurred during WHOIS lookup: {str(e)}"}
+            self.task_logger.error(f"An error occurred during DIG lookup: {str(e)}")
+            return {"error": f"An error occurred during DIG lookup: {str(e)}"}
 
     def is_valid_target(self, target: str) -> bool:
         """Validate if the target is a valid domain or hostname"""
         import re
 
-        # Validate hostname (simpler regex for hostname validation)
         hostname_regex = r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
-        if re.match(hostname_regex, target):
-            return True
-
-        return False
+        return bool(re.match(hostname_regex, target))
 
     def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(task, dict) or "_id" not in task:
@@ -149,15 +123,17 @@ class WhoisWrapperAgent(WrapperAgent):
                     "note": "Validation failed",
                 }
 
-            # Execute the WHOIS lookup
-            whois_result = self.execute_whois_lookup(target=parsed_command.target)
+            # Execute the DIG lookup
+            dig_result = self.execute_dig_lookup(target=parsed_command.target)
 
             # Prepare the result to send back to BOSS
             result = {
                 "task_id": str(task["_id"]),
                 "agent_id": self.agent_id,
-                "result": json.dumps(whois_result),
-                "metadata": {"target": parsed_command.target},
+                "result": dig_result,
+                "metadata": {
+                    "target": parsed_command.target,
+                },
             }
 
             return result

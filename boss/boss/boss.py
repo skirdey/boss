@@ -264,7 +264,7 @@ class BOSS:
             estimation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=StepEstimationResponse,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
 
             additional_steps = []
@@ -307,7 +307,7 @@ class BOSS:
             evaluation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=TaskEvaluationResponse,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
 
             return evaluation.success
@@ -411,7 +411,7 @@ class BOSS:
             agent_analysis = self.call_openai_api_structured(
                 messages=messages,
                 response_model=AgentSelectionAnalysis,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
 
             agent_id = (
@@ -518,7 +518,7 @@ class BOSS:
             evaluation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=TaskEvaluationResponse,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
 
             # Update task status based on evaluation
@@ -569,7 +569,7 @@ class BOSS:
             evaluation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=TaskEvaluationResponse,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
 
             return evaluation.success
@@ -621,6 +621,7 @@ class BOSS:
             execution_time=None,
             metadata=evaluation,
         )
+
         additional_steps = self._generate_additional_steps(task, step_result)
 
         if additional_steps:
@@ -822,7 +823,7 @@ class BOSS:
         self,
         messages: List[Dict[str, str]],
         response_model: type[BaseModel],
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-4o",
     ) -> BaseModel:
         """
         Make a structured call to OpenAI API with Pydantic model parsing
