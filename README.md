@@ -1,4 +1,4 @@
-# BOSS - LLM Operating System
+# BOSS - Multi-Agent LLM Operating System For Offensive Security
 
 BOSS is an intelligent task orchestration system that leverages Large Language Models (LLMs) to coordinate and execute agent-based workflows. Think of it as a smart task manager that can:
 
@@ -10,6 +10,7 @@ BOSS is an intelligent task orchestration system that leverages Large Language M
 - **Performance Monitoring:** Continuously monitor system health and agent performance.
 
 > **Note:** This project is still under development and not all features are fully implemented. **Do not use in production.**
+
 > *This project currently focuses on network security related reasoning tasks. At the same time,BOSS can be extended to other domains with ease.*
 
 ## Table of Contents
