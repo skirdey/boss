@@ -11,99 +11,86 @@ BOSS is an intelligent task orchestration system that leverages Large Language M
 
 > **Note:** This project is still under development and not all features are fully implemented. **Do not use in production.**
 
-> *This project currently focuses on network security related reasoning tasks. At the same time,BOSS can be extended to other domains with ease.*
 
-## Table of Contents
+#### **This project currently focuses on network security related reasoning tasks. At the same time,BOSS can be extended to other domains with ease.**
 
-- [Key Features](#key-features)
-- [Architecture](#architecture)
-- [Quick Start](#quick-start)
-  - [Local Setup](#local-setup)
-  - [Launching BOSS](#launching-boss)
-  - [Integrating Agents](#integrating-agents)
-- [How It Works](#how-it-works)
-- [Configuration](#configuration)
-- [Agent Integration](#agent-integration)
-- [Task States](#task-states)
-- [License](#license)
-
-## Key Features
-
-- **Intelligent Task Analysis:** Automatically assesses task complexity and required steps.
-- **Smart Agent Selection:** Matches tasks with the most capable agents.
-- **Real-time Adaptation:** Adjusts workflows based on performance and results.
-- **Robust Error Handling:** Implements multiple retry strategies with intelligent failure analysis.
-- **Human-in-the-Loop:** Recognizes when to request human intervention.
-- **Performance Monitoring:** Tracks system health and agent performance.
-- **Agent Wrappers:** Provides an abstract interface (`WrapperAgent`) for integrating various agents seamlessly.
-- **Prompt Management:** Utilizes structured prompts (`BossPrompts`) to interact with LLMs for task planning and evaluation.
 
 ## Architecture
-
-```plaintext
-+----------------------------------------------------------------------------------------------------------+
-|                                            BOSS OPERATING SYSTEM                                         |
-|                                    (Brain Operating System & Scheduler)                                  |
-+----------------------------------------------------------------------------------------------------------+
-
-                                          [Task Scheduler]
-                                          (10s interval)
-                                               |
-                                               v
-                  +-----------------------> Task Processor <--------------------+
-                  |                             |                              |
-                  |                             v                              |
-                  |                    +----------------+                      |
-                  |                    | LLM Planning   |                      |
-                  |                    | - Step Gen     |                      |
-                  |                    | - Evaluation   |                      |
-                  |                    | - Agent Select |                      |
-                  |                    +----------------+                      |
-                  |                             |                              |
-        +-----------------+                     v                    +-----------------+
-        |    MongoDB     | <------------> Message Bus (Kafka) <---> | System Monitor  |
-        | - Tasks        |                     |                    | - Health Checks |
-        | - Agent Status |                     v                    +-----------------+
-        +-----------------+           +------------------+
-                                     |   Agent Network   |
-                                     |   +-----------+   |
-                                     |   | Network   |   |
-                                     |   |  - Ping   |   |
-                                     |   |  - WHOIS  |   |
-                                     |   |  - SSL    |   |
-                                     |   +-----------+   |
-                                     |   |   API     |   |
-                                     |   | - REST    |   |
-                                     |   | - WebSock |   |
-                                     |   +-----------+   |
-                                     +------------------+
-                                             ^
-                                             |
-                                     +------------------+
-                                     | Result Consumer  |
-                                     +------------------+
+```
++-----------------------+
+|  BOSS OPERATING SYS   |
++-----------------------+
+          |
+          v
++-----------------------+
+|    Task Scheduler     |
+|      (10s interval)   |
++-----------------------+
+          |
+          v
++-----------------------+
+|    Task Processor     |
+|   - LLM Planning      |
+|     - Step Generation |
+|     - Evaluation      |
+|     - Agent Selection |
++-----------------------+
+          |
+          v
++-----------------------+
+|   Message Bus (Kafka) |
++-----------------------+
+          |
+          v
++-----------------------+
+|     Agent Network     |
+| - Ping                |
+| - WHOIS               |
+| - SSL                 |
+| - REST Test           |
+| - WebSocket Test      |
+| - Scan Ports          |
+| - Get SSL Cert        |
+| - API Explorer        |
+| - Conversation        |
+| - DIG Agent           |
++-----------------------+
+          |
+          v
++-----------------------+
+|    Result Consumer    |
++-----------------------+
+          |
+          v
++-----------------------+
+|        MongoDB        |
+| - Tasks               |
+| - Agent Status        |
++-----------------------+
+          |
+          v
++-----------------------+
+|    System Monitor     |
+| - Health Checks       |
++-----------------------+
 
 Data Flow:
-----------
 1. Scheduler checks for tasks every 10s
-2. Task Processor uses LLM to:
+2. Processor uses LLM to:
    - Generate steps
    - Evaluate results
    - Select appropriate agents
-3. Tasks dispatched via Kafka
+3. Dispatch tasks via Kafka
 4. Agents execute tasks
-5. Results collected by Consumer
-6. MongoDB stores state
+5. Collect results via Consumer
+6. Store/update state in MongoDB
 7. Monitor ensures system health
-
-Process Loop:
-------------
-Check Tasks (10s) -> Process -> Plan (LLM) -> Execute (Agents) -> Collect Results -> Update State -> Repeat
+8. Loop back to step 1
 ```
 
 ## Quick Start
 
-### Local Setup
+## Local Setup
 
 1. **Clone the Repository**
 
@@ -139,16 +126,14 @@ Check Tasks (10s) -> Process -> Plan (LLM) -> Execute (Agents) -> Collect Result
    This script initializes BOSS and its agents, setting up necessary connections and listeners.
 
 
-Result in UI:
-
-**Ping:**   
-![Network Ping Example](imgs/ping_agent.png)
+## Example Results in Task Management UI:
 
 **Ping and Port Scan:**
+
 ![Network Ping and Port Scan Example](imgs/ping_network_scan.png)
 
 
-### Environment Variables
+## Environment Variables
 
 - **OPENAI_API_KEY:** API key for accessing OpenAI's services.
 - **MONGODB_URI:** Connection string for the MongoDB database.
@@ -159,24 +144,54 @@ Result in UI:
 
 To integrate new agents into BOSS, follow these steps:
 
-1. **Subclass `WrapperAgent`:**
-   - Create a new Python file for your agent.
-   - Subclass the `WrapperAgent` abstract class.
-   - Implement the `process_task` method with your agent's specific logic.
+- Subclass WrapperAgent:
 
-2. **Implement `process_task`:**
-   - This method receives a task dictionary.
-   - Process the task as per your agent's capabilities.
-   - Return a result dictionary containing task outcomes.
+   Create a new Python file for your agent (e.g., wrapper_new_agent.py).
+   Subclass the WrapperAgent abstract class.
+   Implement the process_task method with your agent's specific logic.
+   Implement process_task:
 
-3. **Start the Agent:**
-   - Instantiate your agent class with a unique `agent_id`.
-   - Call the `start` method to begin listening for tasks.
+   This method receives a task dictionary.
+   Process the task as per your agent's capabilities.
+   Return a result dictionary containing task outcomes.
 
+```python
+from boss.wrappers.wrapper_agent import WrapperAgent
 
-## Task States
+class WrapperNewAgent(WrapperAgent):
+    def process_task(self, task: Dict) -> Dict[str, Any]:
+        # Your agent's processing logic here
+        result = {
+            "task_id": task["_id"],
+            "result": "Processed successfully",
+            "metadata": {},
+        }
+        return result
+```
 
-BOSS manages tasks through various states to ensure efficient orchestration and tracking. Below are the possible states a task can be in:
+-  Register and Start the Agent:
+
+   Add your new agent class to the components_to_start list in start.py.
+   Ensure your agent has a unique agent_id.
+   Launch BOSS to start listening for tasks assigned to your new agent.
+
+```python
+
+components_to_start = [
+    BOSS,
+    WrapperPing,
+    WrapperConversation,
+    WrapperScanPortAgent,
+    WrapperGetSSLCertificateAgent,
+    WhoisWrapperAgent,
+    DigWrapperAgent,
+    WrapperRESTTestAgent,
+    WrapperWebSocketTestAgent,
+    WrapperAPIExplorer,
+    WrapperNewAgent,  # Add your new agent here
+]
+```
+- Defined Task States:
 
 ```python
 from enum import Enum
