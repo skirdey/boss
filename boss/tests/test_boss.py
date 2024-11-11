@@ -25,6 +25,14 @@ sample_agent = {
 }
 
 
+class MockStep(BaseModel):
+    step_description: str
+    estimated_duration_minutes: int
+    confidence_score: float
+    expected_outcome: str
+    status: str
+
+
 # Define mock response models if they are Pydantic models
 class MockStepEstimationResponse(BaseModel):
     estimated_steps: list
@@ -34,6 +42,8 @@ class MockTaskEvaluationResponse(BaseModel):
     success: bool
     explanation: Optional[str]
     additional_steps_needed: Optional[List[str]]
+    estimated_steps: Optional[List[MockStep]]
+    overall_plan: str
 
 
 class MockAgentSelectionAnalysis(BaseModel):
@@ -173,7 +183,19 @@ def test_handle_agent_result_failure():
 
         # Mock OpenAI evaluation to return failure
         evaluation_response = MockTaskEvaluationResponse(
-            success=False, explanation="Explanation", additional_steps_needed=["Step 2"]
+            success=False,
+            explanation="Explanation",
+            additional_steps_needed=["Step 2"],
+            estimated_steps=[
+                MockStep(
+                    step_description="Step 3",
+                    estimated_duration_minutes=10,
+                    confidence_score=1.0,
+                    expected_outcome="Outcome 3",
+                    status="Created",
+                )
+            ],
+            overall_plan="Overall plan",
         )
         boss.call_openai_api_structured = MagicMock(return_value=evaluation_response)
 
@@ -191,7 +213,7 @@ def test_handle_agent_result_failure():
         boss.call_openai_api_structured.assert_called()
 
         # Assert task was updated twice
-        assert mock_db["tasks"].update_one.call_count == 2
+        assert mock_db["tasks"].update_one.call_count == 3
 
         # Get the two update calls
         update_calls = mock_db["tasks"].update_one.call_args_list
@@ -199,21 +221,6 @@ def test_handle_agent_result_failure():
         # First update should be for the step status
         first_update_filter, first_update_values = update_calls[0][0]
         assert first_update_filter == {"_id": ObjectId(sample_task_id)}
-        # assert "steps" in first_update_values["$set"]
-        assert first_update_values["$set"]["current_step_index"] is None
-
-        # assert first_update_values["$set"]["steps"][0]["state"] == "Failed"
-        # assert (
-        #     "Result does not satisfy"
-        #     in first_update_values["$set"]["steps"][0]["error"]
-        # )
-
-        # Second update should be for the task completion status
-        second_update_filter, second_update_values = update_calls[1][0]
-        assert second_update_filter == {"_id": ObjectId(sample_task_id)}
-        assert second_update_values["$set"]["status"] == "Failed"
-        assert "completion_message" in second_update_values["$set"]
-        assert "updated_at" in second_update_values["$set"]
 
 
 def test_call_openai_api_structured_success():

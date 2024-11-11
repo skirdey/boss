@@ -100,6 +100,98 @@ class BOSS:
                 logger.error(f"Error in consume_agent_results: {e}")
             shutdown_event.wait(timeout=self.check_interval)
 
+    def _add_additional_steps(
+        self, task: Dict, evaluation_response: TaskEvaluationResponse
+    ) -> None:
+        """
+        Add additional steps to a task based on the evaluation response.
+
+        Args:
+            task (Dict): The current task dictionary
+            evaluation_response (TaskEvaluationResponse): The evaluation response containing additional steps
+        """
+        try:
+            task_id = str(task["_id"])
+            current_steps = task.get("steps", [])
+
+            if not evaluation_response.additional_steps_needed:
+                logger.debug(f"No additional steps needed for task {task_id}")
+                return
+
+            # Get agent capabilities for step generation
+            capabilities_list = self._get_agent_capabilities()
+
+            # Generate new steps based on the evaluation response
+            messages = self.prompts.format_step_generation(
+                task_description=f"""Original task: {task.get('description', '')}
+                Current progress: {evaluation_response.explanation}
+                Required additional steps: {evaluation_response.additional_steps_needed}""",
+                capabilities_list=capabilities_list,
+            )
+
+            # Call OpenAI API with structured response
+            estimation = self.call_openai_api_structured(
+                messages=messages, response_model=StepEstimationResponse, model="gpt-4o"
+            )
+
+            if not estimation.estimated_steps:
+                logger.warning(f"No new steps generated for task {task_id}")
+                return
+
+            # Create new step entries
+            new_steps = []
+            start_index = len(current_steps)
+
+            for idx, estimate in enumerate(estimation.estimated_steps):
+                step = {
+                    "step_number": start_index + idx + 1,
+                    "step_description": estimate.step_description,
+                    "overall_plan": estimation.overall_plan,
+                    "state": TaskState.CREATED.value,
+                    "estimated_duration": estimate.estimated_duration_minutes,
+                    "confidence_score": estimate.confidence_score,
+                    "expected_outcome": estimate.expected_outcome,
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+                new_steps.append(step)
+
+            # Update the task with new steps
+            all_steps = current_steps + new_steps
+
+            update_result = self.tasks_collection.update_one(
+                {"_id": ObjectId(task_id)},
+                {
+                    "$set": {
+                        "steps": all_steps,
+                        "updated_at": datetime.now(timezone.utc),
+                    }
+                },
+            )
+
+            if update_result.modified_count == 0:
+                logger.error(f"Failed to update task {task_id} with new steps")
+                return
+
+            logger.info(f"Added {len(new_steps)} new steps to task {task_id}")
+
+            # Record the addition of new steps in task history
+            self._record_task_history(
+                task_id=ObjectId(task_id),
+                action="added_steps",
+                details={
+                    "num_steps_added": len(new_steps),
+                    "reason": evaluation_response.additional_steps_needed,
+                    "new_step_numbers": [step["step_number"] for step in new_steps],
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Error adding additional steps to task: {e}", exc_info=True)
+            self._handle_task_failure(
+                task, None, f"Failed to add additional steps: {str(e)}"
+            )
+
     def handle_agent_result(self, result: Dict[str, Any]):
         """
         Handle the result received from an agent via Kafka with improved step validation and error handling.
@@ -152,6 +244,7 @@ class BOSS:
                 logger.info(
                     f"\n\nAdditional steps: {evaluation.additional_steps_needed}\n\n"
                 )
+                self._add_additional_steps(task, evaluation)
 
             state = (
                 TaskState.COMPLETED_STEP.value
