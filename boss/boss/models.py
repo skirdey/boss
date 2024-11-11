@@ -127,6 +127,7 @@ class StepEstimationResponse(BaseModel):
     additional_steps: Optional[List[StepEstimate]] = Field(
         default=None, description="Optional additional steps that might be needed"
     )
+    overall_plan: str = Field(description="Overall plan for the execution")
 
 
 @dataclass

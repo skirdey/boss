@@ -1,5 +1,6 @@
 import socket
 import struct
+from urllib.parse import urlparse
 
 
 def get_txt_records(domain):
@@ -9,10 +10,18 @@ def get_txt_records(domain):
     :param domain: The domain to query.
     :return: List of TXT records as strings.
     """
-    # DNS server to query
-    dns_server = "8.8.8.8"
-    port = 53
-    timeout = 5
+
+    if not domain or not isinstance(domain, str) or not domain.strip():
+        return []
+
+    def parse_domain(domain):
+        # Get domain without protocol, port, path, query, etc.
+        # It can be https://example.com/path?query#fragment or example.com
+        # etc.
+        parsed_url = urlparse(domain)
+        return parsed_url.netloc
+
+    domain = parse_domain(domain)
 
     # Construct DNS query
     transaction_id = b"\xbb\xbb"  # Random transaction ID
@@ -30,6 +39,10 @@ def get_txt_records(domain):
 
     # Query type TXT (16) and class IN (1)
     query += struct.pack(">HH", 16, 1)
+
+    dns_server = "8.8.8.8"
+    port = 53
+    timeout = 5
 
     # Send DNS query
     try:

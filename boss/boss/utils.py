@@ -2,6 +2,11 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from bson import ObjectId
+from flask import json
+
+
+def serialize_task_to_string(task):
+    return json.dumps(serialize_task(task))
 
 
 def serialize_task(task):

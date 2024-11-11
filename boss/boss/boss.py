@@ -26,7 +26,7 @@ from boss.models import (
     TaskEvaluationResponse,
     TaskState,
 )
-from boss.utils import serialize_task
+from boss.utils import serialize_task, serialize_task_to_string
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -37,7 +37,7 @@ class BOSS:
         self,
         db_uri="mongodb://localhost:27017/",
         kafka_bootstrap_servers="localhost:9092",
-        check_interval=10,
+        check_interval=1,
         openai_api_key=None,
     ):
         self.prompts = BossPrompts()
@@ -140,32 +140,42 @@ class BOSS:
             expected_outcome = current_step.get("expected_outcome", "")
 
             # Evaluate step result
-            evaluation_success = self._evaluate_step_result_with_llm(
+            evaluation: TaskEvaluationResponse = self._evaluate_step_result_with_llm(
                 step_description=step_description,
                 step_result=agent_result,
                 expected_outcome=expected_outcome,
             )
 
+            logger.info(f"\n\nEvaluation: {evaluation}\n\n")
+
+            if evaluation.additional_steps_needed:
+                logger.info(
+                    f"\n\nAdditional steps: {evaluation.additional_steps_needed}\n\n"
+                )
+
             state = (
                 TaskState.COMPLETED_STEP.value
-                if evaluation_success
+                if evaluation.success
                 else TaskState.FAILED.value
             )
+
+            """
+             {'task_id': '6730f5f76241319d5d9e8401', 'agent_id': 'agent_rest_tester', 'results': '[{"status_code": 302, "response_headers": {"Connection": "close", "Location": "http://127.0.0.1:8080/WebGoat/login;jsessionid=pbAPL7eS9SYl9vl3vQE_F0vGhZdl6H0tz_WuJlMm", "Content-Length": "0", "Date": "Sun, 10 Nov 2024 18:07:07 GMT"}, "response_body": "", "execution_time": 0.220012, "scenario": "normal"}, {"status_code": 302, "response_headers": {"Connection": "close", "Location": "http://127.0.0.1:8080/WebGoat/login;jsessionid=MNZGu4kSzaNBrtq5UIJgY5Xw-abIUQQjneeWOuSn", "Content-Length": "0", "Date": "Sun, 10 Nov 2024 18:07:07 GMT"}, "response_body": "", "execution_time": 0.042851, "scenario": "malformed_token"}, {"status_code": 302, "response_headers": {"Connection": "close", "Location": "http://127.0.0.1:8080/WebGoat/login;jsessionid=tDqyYdTcU8RVlrILxfzvgdM5LPAE8UyuWwv_EOI2", "Content-Length": "0", "Date": "Sun, 10 Nov 2024 18:07:07 GMT"}, "response_body": "", "execution_time": 0.027914, "scenario": "expired_token"}, {"status_code": 302, "response_headers": {"Connection": "close", "Location": "http://127.0.0.1:8080/WebGoat/login;jsessionid=Ew9kz7Zyv-6DHB9nAs76AO7MJQPEhdpZa7Xq0Iqx", "Content-Length": "0", "Date": "Sun, 10 Nov 2024 18:07:07 GMT"}, "response_body": "", "execution_time": 0.031954, "scenario": "missing_auth"}, {"status_code": 302, "response_headers": {"Connection": "close", "Location": "http://127.0.0.1:8080/WebGoat/login;jsessionid=eQbpuPaVyqEWYxiLolNH-HCl69feS7GAODjSmUJK", "Content-Length": "0", "Date": "Sun, 10 Nov 2024 18:07:07 GMT"}, "response_body": "", "execution_time": 0.044225, "scenario": "invalid_params"}]', 'metadata': {'summary': '{"total_tests": 5, "passed": 5, "failed": 0, "error_details": []}'}}
+            """
 
             update_fields = {
                 f"steps.{current_step_index}.updated_at": datetime.now(timezone.utc),
                 f"steps.{current_step_index}.result": agent_result,
                 f"steps.{current_step_index}.state": state,
-                "updated_at": datetime.now(timezone.utc),
-                "current_agent": None,
+                f"steps.{current_step_index}.metadata": result.get("metadata", {}),
             }
 
-            if not evaluation_success:
+            if not evaluation.success:
                 update_fields[f"steps.{current_step_index}.error"] = (
                     "Result does not satisfy the step description and expected outcome."
                 )
 
-            if evaluation_success:
+            if evaluation.success:
                 for idx, step in enumerate(
                     steps[current_step_index + 1 :], start=current_step_index + 1
                 ):
@@ -230,6 +240,7 @@ class BOSS:
                 step = {
                     "step_number": idx + 1,
                     "step_description": estimate.step_description,
+                    "overall_plan": estimation.overall_plan,
                     "state": TaskState.CREATED.value,
                     "estimated_duration": estimate.estimated_duration_minutes,
                     "confidence_score": estimate.confidence_score,
@@ -294,7 +305,7 @@ class BOSS:
                 Step Description: {step_description}
                 Expected Outcome: {expected_outcome}
                 
-                The step result should address at least some of the step requirements, but sometimes might not be exact. 
+                The step result should address at least some of the step requirements, but sometimes might not be exact. An attempt at solving the step or task can be considered successful.
 
                 """,
                 step_result=step_result,
@@ -306,7 +317,7 @@ class BOSS:
                 model="gpt-4o",
             )
 
-            return evaluation.success
+            return evaluation
 
         except Exception as e:
             logger.error(f"Error evaluating step result with LLM: {e}")
@@ -356,9 +367,13 @@ class BOSS:
                 if current_step_index and current_step_index > 0
                 else []
             )
+
+            logger.debug(f"Previous steps: {previous_steps}")
+
             previous_step_results = "\n".join(
-                [step.get("result", "") for step in previous_steps]
+                [serialize_task_to_string(step) for step in previous_steps]
             )
+
             task["previous_step_results"] = previous_step_results
 
             if not steps:

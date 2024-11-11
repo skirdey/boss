@@ -30,11 +30,11 @@ Available Agents and Their Capabilities:
 {capabilities_list}
 
 Generate a structured sequence of steps following these rules:
-1. Each step should be atomic and independently executable
-2. Include clear success criteria for each step
-3. Consider dependencies between steps
-4. Match steps to appropriate agent capabilities
-5. Maintain appropriate scope - neither too broad nor too narrow
+0. Start with an overall plan for the exeuction, reason about the best way to achieve the task
+1. Each step can depend on previous steps, but should not be too dependent
+2. Each step could have flexible success criteria, use common sense and step description to determine success criteria
+3. Each step should be designed to be executed by one of the available agents
+
 
 Respond in JSON format matching the StepEstimationResponse model with:
 - Detailed step descriptions

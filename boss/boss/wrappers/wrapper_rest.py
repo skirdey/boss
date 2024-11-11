@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -19,24 +19,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class TestScenario(BaseModel):
+    """Model for test scenario"""
+
+    scenario: str = Field(..., description="Test scenario name")
+    description: str = Field(..., description="Test scenario description")
+    url: str = Field(..., description="URL to test")
+    method: str = Field(..., description="HTTP method to use")
+    headers: Optional[Dict[str, str]] = Field(description="HTTP headers")
+    body: str = Field(..., description="HTTP body")
+    auth_type: str = Field(..., description="Authentication type")
+    auth_params: Optional[Dict[str, str]] = Field(
+        description="Authentication parameters"
+    )
+    test_scenario: str = Field(..., description="Test scenario name")
+
+
 class RESTRequestCommand(BaseModel):
     """Model for REST request command parameters"""
 
-    url: str = Field(description="Target URL for the REST request")
-    method: str = Field(description="HTTP method (GET, POST, PUT, DELETE, etc.)")
-    headers: Dict[str, str] = Field(
-        description="HTTP headers",
-    )
-    body: dict[str, Any] = Field(description="Request body")
-    auth_type: str = Field(
-        description="Authentication type (None, Basic, Bearer, OAuth, JWT)",
-    )
-    auth_params: dict[str, str] = Field(
-        description="Authentication parameters (tokens, credentials, etc.)",
-    )
-    test_scenarios: list[str] = Field(
-        description="List of test scenarios to execute (e.g., normal, malformed_token, expired_token)",
-    )
+    test_scenarios: List[TestScenario]
 
 
 class WrapperRESTTestAgent(WrapperAgent):
@@ -118,6 +120,7 @@ class WrapperRESTTestAgent(WrapperAgent):
         }
 
         for result in results:
+            logger.info(f"Result: {result}")
             if "error" in result or result.get("status_code", 0) >= 400:
                 summary["failed"] += 1
                 summary["error_details"].append(
@@ -165,14 +168,18 @@ class WrapperRESTTestAgent(WrapperAgent):
 
         return auth_params.get("token", "")
 
-    def execute_request(self, command: RESTRequestCommand) -> Dict[str, Any]:
+    def execute_request(self, command: TestScenario) -> Dict[str, Any]:
         """Execute the REST request with the given parameters"""
         try:
             self.task_logger.info(
                 f"Executing REST request: {command.method} {command.url}"
             )
 
-            headers = dict(command.headers)
+            # headers is a list of tuples
+            if command.headers:
+                headers = command.headers
+            else:
+                headers = {}
 
             # Handle authentication
             if command.auth_type:
@@ -183,7 +190,7 @@ class WrapperRESTTestAgent(WrapperAgent):
                 if command.auth_type in ["Bearer", "JWT", "OAuth"]:
                     headers["Authorization"] = f"Bearer {token}"
                 elif command.auth_type == "Basic":
-                    # In a real implementation, you'd handle Basic auth properly
+                    # Handle Basic auth if needed
                     pass
 
             # Prepare the request
@@ -257,8 +264,9 @@ class WrapperRESTTestAgent(WrapperAgent):
             # Execute requests for all test scenarios
             results = []
             for scenario in parsed_command.test_scenarios:
-                command = parsed_command.copy()
-                command.test_scenario = scenario  # Assign single scenario
+                logger.info(f"Executing scenario: {scenario}")
+
+                command = scenario
                 request_result = self.execute_request(command)
                 results.append(request_result)
 
@@ -269,13 +277,10 @@ class WrapperRESTTestAgent(WrapperAgent):
             result = {
                 "task_id": str(task_id),
                 "agent_id": self.agent_id,
-                "results": results,
-                "summary": summary,
+                "result": json.dumps(summary),
                 "metadata": {
-                    "url": parsed_command.url,
-                    "method": parsed_command.method,
-                    "auth_type": parsed_command.auth_type,
-                    "test_scenarios": parsed_command.test_scenarios,
+                    "summary": json.dumps(summary),
+                    "request_results": json.dumps(results),
                 },
             }
 

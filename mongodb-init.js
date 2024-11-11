@@ -122,7 +122,12 @@ db.agents.insertMany([
         "agent_id": "agent_websocket_tester",
         "capabilities": ["can test WebSocket endpoints by sending messages and receiving responses"],
         "status": "active",
-    }
+    },
+    {
+        "agent_id": "agent_api_explorer",
+        "capabilities": ["comprehensive web security tool that performs tasks such as port scanning, SSL certificate analysis, subdomain enumeration, directory and file discovery, detection of web technologies, and verification of security headers. Additionally, it identifies potential vulnerabilities like CORS misconfigurations, CSRF weaknesses, injection points, and sensitive file disclosures, compiling all findings into a structured JSON report."],
+        "status": "active",
+    },
 ]);
 
 // Task history collection for audit trail

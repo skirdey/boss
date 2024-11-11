@@ -205,12 +205,21 @@ def reset_tasks():
             {
                 "$set": {
                     "status": "Created",
+                    "current_agent": None,
+                    "current_step_index": 0,
+                    "notes": "",
+                    "final_failure_details": {},
                     "updated_at": current_time,
                     "steps": [],
                     "audit_trail": [],
                     "finished_at": None,
                 },
-                "$unset": {"result": ""},  # Remove the 'result' field if necessary
+                "$unset": {
+                    "result": "",
+                    "final_failure_details": {},
+                    "human_intervention_request": {},
+                    "failure_history": [],
+                },  # Remove the 'result' field if necessary
             },
         )
         return jsonify({"message": "Tasks reset successfully"}), 200

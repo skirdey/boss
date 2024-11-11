@@ -7,6 +7,7 @@ from typing import Any, List, Tuple
 
 from boss.boss import BOSS
 from boss.events import shutdown_event
+from boss.wrappers.wrapper_api_explorer import WrapperAPIExplorer
 from boss.wrappers.wrapper_conversation import WrapperConversation
 from boss.wrappers.wrapper_dig import DigWrapperAgent
 from boss.wrappers.wrapper_get_ssl import WrapperGetSSLCertificateAgent
@@ -129,6 +130,7 @@ def main():
         DigWrapperAgent,
         WrapperRESTTestAgent,
         WrapperWebSocketTestAgent,
+        WrapperAPIExplorer,
     ]
 
     try:
