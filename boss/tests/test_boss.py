@@ -197,6 +197,8 @@ def test_handle_agent_result_failure():
             ],
             overall_plan="Overall plan",
         )
+
+        boss._add_additional_steps = MagicMock(return_value="No")
         boss.call_openai_api_structured = MagicMock(return_value=evaluation_response)
 
         # Mock task update
@@ -213,7 +215,7 @@ def test_handle_agent_result_failure():
         boss.call_openai_api_structured.assert_called()
 
         # Assert task was updated twice
-        assert mock_db["tasks"].update_one.call_count == 3
+        assert mock_db["tasks"].update_one.call_count == 2
 
         # Get the two update calls
         update_calls = mock_db["tasks"].update_one.call_args_list
