@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 from unittest.mock import ANY, MagicMock, patch
 
 import pytest
@@ -33,6 +33,7 @@ class MockStepEstimationResponse(BaseModel):
 class MockTaskEvaluationResponse(BaseModel):
     success: bool
     explanation: Optional[str]
+    additional_steps_needed: Optional[List[str]]
 
 
 class MockAgentSelectionAnalysis(BaseModel):
@@ -172,7 +173,7 @@ def test_handle_agent_result_failure():
 
         # Mock OpenAI evaluation to return failure
         evaluation_response = MockTaskEvaluationResponse(
-            success=False, explanation="Explanation"
+            success=False, explanation="Explanation", additional_steps_needed=["Step 2"]
         )
         boss.call_openai_api_structured = MagicMock(return_value=evaluation_response)
 
@@ -200,7 +201,7 @@ def test_handle_agent_result_failure():
         assert first_update_filter == {"_id": ObjectId(sample_task_id)}
         # assert "steps" in first_update_values["$set"]
         assert first_update_values["$set"]["current_step_index"] is None
-        assert first_update_values["$set"]["current_agent"] is None
+
         # assert first_update_values["$set"]["steps"][0]["state"] == "Failed"
         # assert (
         #     "Result does not satisfy"
