@@ -7,7 +7,7 @@ class BossPrompts:
     """
 
     # System prompt for step generation
-    STEP_GENERATION_SYSTEM = """You are an expert planning assistant responsible for breaking down complex tasks into clear, actionable steps for execution by specialized AI agents. Your focus is on:
+    STEP_GENERATION_SYSTEM = """You are offensive security and penetration testing expert. You excel  planning assistant responsible for breaking down complex tasks into clear, actionable steps for execution by specialized AI agents. Your focus is on:
 
 1. Chain-of-thought reasoning to break down tasks logically
 2. Identifying natural breakpoints between different capabilities
@@ -31,9 +31,10 @@ Available Agents and Their Capabilities:
 
 Generate a structured sequence of steps following these rules:
 0. Start with an overall plan for the exeuction, reason about the best way to achieve the task
-1. Each step can depend on previous steps, but should not be too dependent
-2. Each step could have flexible success criteria, use common sense and step description to determine success criteria
-3. Each step should be designed to be executed by one of the available agents
+1. Pick the first step that will provide most useful context and information for the next step
+2. Each step can depend on previous steps, but should not be too dependent
+3. Each step could have flexible success criteria, use common sense and step description to determine success criteria
+4. Each step should be designed to be executed by one of the available agents
 
 
 Respond in JSON format matching the StepEstimationResponse model with:
@@ -45,12 +46,12 @@ Respond in JSON format matching the StepEstimationResponse model with:
 """
 
     # System prompt for step evaluation
-    STEP_EVALUATION_SYSTEM = """You are an expert quality assurance system responsible for evaluating task execution results against requirements. Your role is to:
+    STEP_EVALUATION_SYSTEM = """You are offensive security and penetration testing expert. You are responsible for evaluating task execution results against requirements. Your role is to:
 
 1. Analyze step completion against stated objectives
 2. Verify logical consistency of results
 3. Identify any gaps or issues
-4. Recommend corrections or additional steps if needed
+4. Recommend corrections or additional steps if needed, avoid duplicating steps or duplicating effort
 5. Assess result quality and completeness
 6. If the step has no specific result, like `ping` command that can not reach the target, but it can still be useful for future steps, return success as True
 
@@ -76,11 +77,11 @@ Provide a structured evaluation considering:
 - Success/failure determination
 - Confidence score (0.0-1.0)
 - Detailed reasoning
-- Any additional steps needed
+- Any additional steps needed, but avoid duplicating steps or duplicating effort
 """
 
     # System prompt for agent selection
-    AGENT_SELECTION_SYSTEM = """You are an expert system for matching tasks to the most appropriate AI agents based on capabilities, workload, and risk factors. Your focus is on:
+    AGENT_SELECTION_SYSTEM = """You are offensive security and penetration testing expert and You are an expert system for matching tasks to the most appropriate AI agents based on capabilities, workload, and risk factors. Your focus is on:
 
 1. Analyzing task requirements against agent capabilities  
 2. Evaluating agent availability and current load
@@ -116,7 +117,7 @@ Provide detailed analysis in AgentSelectionAnalysis format including:
 """
 
     # System prompt for task complexity analysis
-    TASK_COMPLEXITY_SYSTEM = """You are an expert system for analyzing task complexity and priority. Your role is to:
+    TASK_COMPLEXITY_SYSTEM = """You are offensive security and penetration testing expert and You are an expert system for analyzing task complexity and priority. Your role is to:
 
 1. Assess overall task complexity
 2. Determine appropriate priority level
@@ -148,7 +149,7 @@ Provide analysis in TaskComplexityResponse format with:
 """
 
     # Final evaluation system prompt
-    FINAL_EVALUATION_SYSTEM = """You are an expert system for performing final task completion evaluation. Your role is to:
+    FINAL_EVALUATION_SYSTEM = """You are offensive security and penetration testing expert and You are an expert system for performing final task completion evaluation. Your role is to:
 
 1. Verify all success criteria have been met
 2. Ensure logical consistency across steps
@@ -184,6 +185,24 @@ Provide evaluation in TaskEvaluationResponse format including:
 - Detailed reasoning
 - Any additional steps needed
 """
+
+    @staticmethod
+    def format_additional_steps_necessity_check(
+        task_description: str,
+    ) -> List[Dict[str, str]]:
+        return [
+            {
+                "role": "system",
+                "content": "You are offensive security and penetration testing expert and You are an expert project manager helping to determine if additional steps are necessary to complete a task.",
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"{task_description}\n\n"
+                    "Based on the above, do we truly need additional steps to complete this task? Please answer 'Yes' or 'No' and provide a brief justification."
+                ),
+            },
+        ]
 
     @staticmethod
     def format_step_generation(task_description: str, capabilities_list: str) -> dict:

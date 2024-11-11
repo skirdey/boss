@@ -5,6 +5,11 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+class NecessityCheckResponse(BaseModel):
+    is_additional_steps_needed: str  # Expected values: 'Yes' or 'No'
+    justification: str
+
+
 class AgentCapabilityMatch(BaseModel):
     """Model for evaluating how well an agent's capabilities match task requirements"""
 

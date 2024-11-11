@@ -21,8 +21,8 @@ from boss.boss_prompts import BossPrompts
 from boss.events import shutdown_event
 from boss.models import (
     AgentSelectionAnalysis,
+    NecessityCheckResponse,
     StepEstimationResponse,
-    StepResult,
     TaskEvaluationResponse,
     TaskState,
 )
@@ -104,11 +104,7 @@ class BOSS:
         self, task: Dict, evaluation_response: TaskEvaluationResponse
     ) -> None:
         """
-        Add additional steps to a task based on the evaluation response.
-
-        Args:
-            task (Dict): The current task dictionary
-            evaluation_response (TaskEvaluationResponse): The evaluation response containing additional steps
+        Determine if additional steps are necessary and add them to the task only if they are truly needed.
         """
         try:
             task_id = str(task["_id"])
@@ -118,24 +114,77 @@ class BOSS:
                 logger.debug(f"No additional steps needed for task {task_id}")
                 return
 
-            # Get agent capabilities for step generation
+            # Gather all steps and their states
+            all_steps_info = "\n".join(
+                [
+                    f"Step {step['step_number']}: {step['step_description']} - State: {step['state']}"
+                    for step in current_steps
+                ]
+            )
+
+            # Gather results from completed steps
+            completed_steps = [
+                step
+                for step in current_steps
+                if step.get("state") == TaskState.COMPLETED_STEP.value
+            ]
+            completed_steps_results = "\n".join(
+                [
+                    f"Step {step['step_number']} Result: {step.get('result', '')}"
+                    for step in completed_steps
+                ]
+            )
+
+            # Include current progress and context in the prompt
+            task_description = task.get("description", "")
+            previous_step_results = completed_steps_results
+
+            # Step 1: Check if additional steps are truly necessary
+            messages = self.prompts.format_additional_steps_necessity_check(
+                task_description=(
+                    f"Original task: {task_description}\n\n"
+                    f"Current steps and their states:\n{all_steps_info}\n\n"
+                    f"Results of completed steps:\n{previous_step_results}\n\n"
+                    f"Evaluation explanation: {evaluation_response.explanation}\n\n"
+                    f"Based on the above, do we truly need additional steps to complete this task? Answer 'Yes' or 'No' and provide a brief justification."
+                )
+            )
+
+            necessity_response = self.call_openai_api_structured(
+                messages=messages,
+                response_model=NecessityCheckResponse,
+                model="gpt-4o-mini",  # noqa: F821
+            )
+
+            if necessity_response.is_additional_steps_needed.strip().lower() != "yes":
+                logger.info(
+                    f"No additional steps needed for task {task_id} according to LLM."
+                )
+                return
+
+            # Step 2: Generate additional steps
             capabilities_list = self._get_agent_capabilities()
 
-            # Generate new steps based on the evaluation response
             messages = self.prompts.format_step_generation(
-                task_description=f"""Original task: {task.get('description', '')}
-                Current progress: {evaluation_response.explanation}
-                Required additional steps: {evaluation_response.additional_steps_needed}""",
+                task_description=(
+                    f"Original task: {task_description}\n\n"
+                    f"Current steps and their states:\n{all_steps_info}\n\n"
+                    f"Results of completed steps:\n{previous_step_results}\n\n"
+                    f"Additional steps needed as per evaluation: {evaluation_response.additional_steps_needed}\n\n"
+                    f"Please generate only the minimal set of additional steps that are absolutely necessary to complete the task, without duplicating any existing steps."
+                ),
                 capabilities_list=capabilities_list,
             )
 
-            # Call OpenAI API with structured response
             estimation = self.call_openai_api_structured(
-                messages=messages, response_model=StepEstimationResponse, model="gpt-4o"
+                messages=messages,
+                response_model=StepEstimationResponse,
+                model="gpt-4o-mini",
             )
 
+            # Handle the case where no steps are needed
             if not estimation.estimated_steps:
-                logger.warning(f"No new steps generated for task {task_id}")
+                logger.info(f"No new steps were generated for task {task_id}")
                 return
 
             # Create new step entries
@@ -181,7 +230,7 @@ class BOSS:
                 action="added_steps",
                 details={
                     "num_steps_added": len(new_steps),
-                    "reason": evaluation_response.additional_steps_needed,
+                    "reason": necessity_response.justification,
                     "new_step_numbers": [step["step_number"] for step in new_steps],
                 },
             )
@@ -252,10 +301,6 @@ class BOSS:
                 else TaskState.FAILED.value
             )
 
-            """
-             {'task_id': '6730f5f76241319d5d9e8401', 'agent_id': 'agent_rest_tester', 'results': '[{"status_code": 302, "response_headers": {"Connection": "close", "Location": "http://127.0.0.1:8080/WebGoat/login;jsessionid=pbAPL7eS9SYl9vl3vQE_F0vGhZdl6H0tz_WuJlMm", "Content-Length": "0", "Date": "Sun, 10 Nov 2024 18:07:07 GMT"}, "response_body": "", "execution_time": 0.220012, "scenario": "normal"}, {"status_code": 302, "response_headers": {"Connection": "close", "Location": "http://127.0.0.1:8080/WebGoat/login;jsessionid=MNZGu4kSzaNBrtq5UIJgY5Xw-abIUQQjneeWOuSn", "Content-Length": "0", "Date": "Sun, 10 Nov 2024 18:07:07 GMT"}, "response_body": "", "execution_time": 0.042851, "scenario": "malformed_token"}, {"status_code": 302, "response_headers": {"Connection": "close", "Location": "http://127.0.0.1:8080/WebGoat/login;jsessionid=tDqyYdTcU8RVlrILxfzvgdM5LPAE8UyuWwv_EOI2", "Content-Length": "0", "Date": "Sun, 10 Nov 2024 18:07:07 GMT"}, "response_body": "", "execution_time": 0.027914, "scenario": "expired_token"}, {"status_code": 302, "response_headers": {"Connection": "close", "Location": "http://127.0.0.1:8080/WebGoat/login;jsessionid=Ew9kz7Zyv-6DHB9nAs76AO7MJQPEhdpZa7Xq0Iqx", "Content-Length": "0", "Date": "Sun, 10 Nov 2024 18:07:07 GMT"}, "response_body": "", "execution_time": 0.031954, "scenario": "missing_auth"}, {"status_code": 302, "response_headers": {"Connection": "close", "Location": "http://127.0.0.1:8080/WebGoat/login;jsessionid=eQbpuPaVyqEWYxiLolNH-HCl69feS7GAODjSmUJK", "Content-Length": "0", "Date": "Sun, 10 Nov 2024 18:07:07 GMT"}, "response_body": "", "execution_time": 0.044225, "scenario": "invalid_params"}]', 'metadata': {'summary': '{"total_tests": 5, "passed": 5, "failed": 0, "error_details": []}'}}
-            """
-
             update_fields = {
                 f"steps.{current_step_index}.updated_at": datetime.now(timezone.utc),
                 f"steps.{current_step_index}.result": agent_result,
@@ -323,7 +368,7 @@ class BOSS:
             estimation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=StepEstimationResponse,
-                model="gpt-4o",
+                model="gpt-4o-mini",
             )
 
             logger.debug(f"Received estimation: {estimation}")
@@ -349,45 +394,6 @@ class BOSS:
             logger.error(f"Error generating steps from description: {e}")
             return []
 
-    def _generate_additional_steps(
-        self, task: Dict, step_result: StepResult
-    ) -> List[Dict]:
-        """
-        Generate additional steps to handle a failed step using OpenAI LLM
-        """
-        try:
-            messages = self.prompts.format_step_generation(
-                task_description=f"""Original task: {task.get('description', '')}
-                Failed step: {step_result.step_description}
-                Error: {step_result.error}
-                Generate additional steps to resolve the issue.""",
-                capabilities_list=self._get_agent_capabilities(),
-            )
-
-            # Call OpenAI API with structured response
-            estimation = self.call_openai_api_structured(
-                messages=messages,
-                response_model=StepEstimationResponse,
-                model="gpt-4o",
-            )
-
-            additional_steps = []
-            for idx, estimate in enumerate(estimation.estimated_steps):
-                step = {
-                    "step_number": len(task.get("steps", [])) + idx + 1,
-                    "step_description": estimate.step_description,
-                    "state": TaskState.CREATED.value,
-                    "created_at": datetime.now(timezone.utc),
-                    "updated_at": datetime.now(timezone.utc),
-                }
-                additional_steps.append(step)
-
-            return additional_steps
-
-        except Exception as e:
-            logger.error(f"Error generating additional steps: {e}")
-            return []
-
     def _evaluate_step_result_with_llm(
         self, step_description: str, step_result: str, expected_outcome: str = ""
     ) -> bool:
@@ -407,7 +413,7 @@ class BOSS:
             evaluation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=TaskEvaluationResponse,
-                model="gpt-4o",
+                model="gpt-4o-mini",
             )
 
             return evaluation
@@ -515,7 +521,7 @@ class BOSS:
             agent_analysis = self.call_openai_api_structured(
                 messages=messages,
                 response_model=AgentSelectionAnalysis,
-                model="gpt-4o",
+                model="gpt-4o-mini",
             )
 
             agent_id = (
@@ -622,7 +628,7 @@ class BOSS:
             evaluation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=TaskEvaluationResponse,
-                model="gpt-4o",
+                model="gpt-4o-mini",
             )
 
             # Update task status based on evaluation
@@ -673,7 +679,7 @@ class BOSS:
             evaluation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=TaskEvaluationResponse,
-                model="gpt-4o",
+                model="gpt-4o-mini",
             )
 
             return evaluation.success
@@ -715,30 +721,9 @@ class BOSS:
         )
         logger.info(f"Step {current_step_index} failed for task {task_id}")
 
-        # Generate additional steps to handle the failure
-        logger.info(f"Generating additional steps for task {task_id} due to failure.")
-        step_result = StepResult(
-            step_description=current_step.get("step_description", ""),
-            success=False,
-            result=None,
-            error=evaluation.get("error", ""),
-            execution_time=None,
-            metadata=evaluation,
+        self._request_human_intervention(
+            task, "No additional steps generated to handle failure"
         )
-
-        additional_steps = self._generate_additional_steps(task, step_result)
-
-        if additional_steps:
-            logger.info(f"Adding additional steps to task {task_id}")
-            steps.extend(additional_steps)
-            self.tasks_collection.update_one(
-                {"_id": task["_id"]}, {"$set": {"steps": steps}}
-            )
-        else:
-            logger.warning(f"No additional steps generated for task {task_id}")
-            self._request_human_intervention(
-                task, "No additional steps generated to handle failure"
-            )
 
     def _send_task_to_agent_with_retry(
         self, agent_id: str, task: Dict, max_retries: int = 3

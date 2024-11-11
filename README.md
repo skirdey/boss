@@ -137,33 +137,6 @@ Check Tasks (10s) -> Process -> Plan (LLM) -> Execute (Agents) -> Collect Result
    ```
    This script initializes BOSS and its agents, setting up necessary connections and listeners.
 
-### Integrating Agents
-
-1. **Create a New Agent:**
-   - Subclass the `WrapperAgent` abstract class.
-   - Implement the `process_task` method with your agent's specific logic.
-
-   ```python
-   # agents/my_agent.py
-
-   from wrappers.wrapper_agent import WrapperAgent
-
-   class MyAgent(WrapperAgent):
-       def process_task(self, task: Dict) -> Dict[str, Any]:
-           # Implement task processing logic
-           result = {
-               "task_id": task["_id"],
-               "result": "Task completed successfully.",
-               "status": "success",
-               # Add additional fields as needed
-           }
-           return result
-
-   if __name__ == "__main__":
-       agent = MyAgent(agent_id="my_agent_id")
-       agent.start()
-   ```
-
 
 Result in UI:
 
@@ -173,15 +146,6 @@ Result in UI:
 **Ping and Port Scan:**
 ![Network Ping and Port Scan Example](imgs/ping_network_scan.png)
 
-## Configuration
-
-BOSS uses environment variables for configuration. Create a `.env` file in the root directory with the following content:
-
-```env
-OPENAI_API_KEY=your_openai_api_key
-MONGODB_URI=mongodb://localhost:27017
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092
-```
 
 ### Environment Variables
 
@@ -208,31 +172,6 @@ To integrate new agents into BOSS, follow these steps:
    - Instantiate your agent class with a unique `agent_id`.
    - Call the `start` method to begin listening for tasks.
 
-### Example:
-
-```python
-# agents/example_agent.py
-
-from wrappers.wrapper_agent import WrapperAgent
-from typing import Dict, Any
-
-class ExampleAgent(WrapperAgent):
-    def process_task(self, task: Dict) -> Dict[str, Any]:
-        # Example processing logic
-        task_description = task.get("description", "No description provided.")
-        # Simulate task processing
-        result = {
-            "task_id": task["_id"],
-            "result": f"Processed task: {task_description}",
-            "status": "success",
-            "metadata": {"processed_at": datetime.now(timezone.utc).isoformat()},
-        }
-        return result
-
-if __name__ == "__main__":
-    agent = ExampleAgent(agent_id="example_agent")
-    agent.start()
-```
 
 ## Task States
 
@@ -254,24 +193,6 @@ class TaskState(str, Enum):
     FINAL_COMPLETION = "Final_Complition"
 ```
 
-### State Transitions
-
-1. **Created → In_Progress:** When a task is assigned to an agent.
-2. **In_Progress → Completed_Step:** Upon successful completion of a step.
-3. **In_Progress → Failed:** If a step fails after retries.
-4. **Failed → Awaiting_Human:** If the system cannot automatically resolve the failure.
-5. **Completed_Step → Completed_Workflow:** When all steps are successfully completed.
-6. **Any State → Paused:** If the task is manually paused.
-7. **Any State → Final_Complition:** After final evaluation of the task.
-
 ## License
 
 This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## Additional Notes
-
-- **Logging:** BOSS and agents use Python's `logging` module for detailed logs. Customize logging levels and formats as needed.
-- **Extensibility:** The modular design allows for easy integration of new agents and expansion of capabilities.
-- **Error Handling:** Comprehensive error handling ensures that failures are managed gracefully, with opportunities for retries or human intervention.

@@ -91,7 +91,9 @@ class WrapperAPIExplorer(WrapperAgent):
     def execute_scan(self, target: str, ports: Optional[List[int]] = None) -> str:
         """Execute API scan with given parameters"""
         try:
-            self.task_logger.info(f"Executing API scan on target: {target}")
+            self.task_logger.info(
+                f"Executing API scan on target: {target} with ports {ports}"
+            )
 
             # Instantiate the APIScanner with the target
             report = scan_api(target, ports)
