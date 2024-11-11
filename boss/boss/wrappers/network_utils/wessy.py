@@ -873,7 +873,3 @@ def main() -> Dict:
     scanner = WESSyScanner(target=args.target, ports=ports, threads=args.threads)
     results = scanner.scan()
     return results
-
-
-if __name__ == "__main__":
-    main()
