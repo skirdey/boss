@@ -14,6 +14,7 @@ from boss.wrappers.wrapper_get_ssl import WrapperGetSSLCertificateAgent
 from boss.wrappers.wrapper_ping_agent import WrapperPing
 from boss.wrappers.wrapper_rest import WrapperRESTTestAgent
 from boss.wrappers.wrapper_scan_ports import WrapperScanPortAgent
+from boss.wrappers.wrapper_sql_injection_agent import WrapperSQLInjectionAgent
 from boss.wrappers.wrapper_websocket import WrapperWebSocketTestAgent
 from boss.wrappers.wrapper_whois import WhoisWrapperAgent
 
@@ -131,6 +132,7 @@ def main():
         WrapperRESTTestAgent,
         WrapperWebSocketTestAgent,
         WrapperAPIExplorer,
+        WrapperSQLInjectionAgent,
     ]
 
     try:

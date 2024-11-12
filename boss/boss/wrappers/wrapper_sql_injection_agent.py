@@ -1,3 +1,4 @@
+import asyncio  # Added to handle async calls in sync context
 import logging
 import os
 from datetime import datetime, timezone
@@ -6,6 +7,7 @@ from typing import Any, Dict, List, Optional
 import anthropic
 from pydantic import BaseModel, Field
 
+from boss.wrappers.network_utils.sql_injection import ScanTarget, SecurityScanner
 from boss.wrappers.wrapper_agent import WrapperAgent
 
 logging.basicConfig(
@@ -20,7 +22,9 @@ class ScanParameters(BaseModel):
     """Model for security scan parameters"""
 
     target_url: str = Field(..., description="Target URL to scan")
-    paths: List[str] = Field(..., description="List of paths to test")
+    paths: List[str] = Field(
+        ..., description="List of paths to test for SQL injections"
+    )
     description: Optional[str] = Field(description="Scan description")
 
 
@@ -34,12 +38,12 @@ class ScanFinding(BaseModel):
     severity: str
 
 
-class WrapperSecurityScanner(WrapperAgent):
+class WrapperSQLInjectionAgent(WrapperAgent):
     """Wrapper agent for security scanning operations"""
 
     def __init__(
         self,
-        agent_id="agent_security_scanner",
+        agent_id="agent_sql_injection_tester",
         kafka_bootstrap_servers="localhost:9092",
     ):
         super().__init__(agent_id, kafka_bootstrap_servers)
@@ -51,7 +55,7 @@ class WrapperSecurityScanner(WrapperAgent):
         """Extract scan parameters using LLM"""
         try:
             response = self.anthropic.messages.create(
-                model="claude-3-sonnet-20240229",
+                model="claude-3.5-naiku-latest",
                 max_tokens=1024,
                 temperature=0,
                 system="Security researcher extracting scan parameters from task description",
@@ -62,7 +66,7 @@ class WrapperSecurityScanner(WrapperAgent):
                     Extract scan parameters from the following task description.
                     Remove any credentials or sensitive data.
                     Task: {task_description}
-                    
+
                     Return as JSON with fields:
                     - target_url (string)
                     - paths (list of strings)
@@ -73,7 +77,7 @@ class WrapperSecurityScanner(WrapperAgent):
             )
 
             # Parse response
-            parsed = json.loads(response.content)
+            parsed = response.content[0].text
             return ScanParameters(**parsed)
 
         except Exception as e:
@@ -89,15 +93,10 @@ class WrapperSecurityScanner(WrapperAgent):
             result = urlparse(target_url)
             return all([result.scheme, result.netloc])
 
-            # Check if target is in allowed domains/ranges
-            allowed_targets = ["127.0.0.1", "localhost", ".local", ".test", ".example"]
-
-            return any(target in target_url for target in allowed_targets)
-
         except Exception:
             return False
 
-    async def _execute_scan(self, params: ScanParameters) -> Dict[str, Any]:
+    def _execute_scan(self, params: ScanParameters) -> Dict[str, Any]:
         """Execute security scan with given parameters"""
         try:
             scanner = SecurityScanner(
@@ -109,7 +108,8 @@ class WrapperSecurityScanner(WrapperAgent):
                 ),
             )
 
-            results = await scanner.scan()
+            # Run the async scan method synchronously
+            results = asyncio.run(scanner.scan())
 
             # Process and structure results
             findings = []
@@ -148,7 +148,7 @@ class WrapperSecurityScanner(WrapperAgent):
         else:
             return "low"
 
-    async def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+    def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """Process incoming task"""
         if not isinstance(task, dict) or "_id" not in task:
             logger.error("Invalid task format")
@@ -181,7 +181,7 @@ class WrapperSecurityScanner(WrapperAgent):
 
             # Execute scan
             start_time = datetime.now(timezone.utc)
-            scan_results = await self._execute_scan(scan_params)
+            scan_results = self._execute_scan(scan_params)
             execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
             # Prepare result
@@ -207,12 +207,3 @@ class WrapperSecurityScanner(WrapperAgent):
                 "error": str(e),
                 "note": "Exception occurred during scan execution",
             }
-
-
-def create_scanner_agent(
-    kafka_servers: str = "localhost:9092", agent_id: str = "agent_security_scanner"
-) -> WrapperSecurityScanner:
-    """Factory function to create scanner agent"""
-    return WrapperSecurityScanner(
-        agent_id=agent_id, kafka_bootstrap_servers=kafka_servers
-    )

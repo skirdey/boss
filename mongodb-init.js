@@ -128,6 +128,11 @@ db.agents.insertMany([
         "capabilities": ["comprehensive web security tool that performs tasks such as port scanning, SSL certificate analysis, subdomain enumeration, directory and file discovery, detection of web technologies, and verification of security headers. Additionally, it identifies potential vulnerabilities like CORS misconfigurations, CSRF weaknesses, injection points, and sensitive file disclosures, compiling all findings into a structured JSON report."],
         "status": "active",
     },
+    {
+        "agent_id": "agent_sql_injection_tester",
+        "capabilities": ["This agent uses an LLM to generate and execute SQL injection tests against a target URL and specified paths. It analyzes responses for vulnerabilities, assessing their severity and reporting findings, but is designed for educational environments and controlled testing due to its reliance on predictable patterns and lack of robust input validation."],
+        "status": "active",
+    }
 ]);
 
 // Task history collection for audit trail
