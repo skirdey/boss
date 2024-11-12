@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 import websockets
 from pydantic import BaseModel, Field, ValidationError
 
+from boss.utils import serialize_task_to_string
 from boss.wrappers.wrapper_agent import WrapperAgent
 
 logging.basicConfig(
@@ -297,7 +298,7 @@ class WrapperWebSocketTestAgent(WrapperAgent):
             result = {
                 "task_id": str(task_id),
                 "agent_id": self.agent_id,
-                "result": test_result,
+                "result": serialize_task_to_string(test_result),
                 "metadata": {
                     "url": parsed_command.url,
                     "test_scenario": parsed_command.test_scenario,

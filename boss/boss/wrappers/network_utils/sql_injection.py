@@ -1,14 +1,41 @@
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import asyncio
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
 import anthropic
 import httpx
-import yaml
+
+logger = logging.getLogger(__name__)
+
+
+# Set logs to pink color
+class PinkFormatter(logging.Formatter):
+    """Custom formatter to output logs in pink color"""
+
+    PINK = "\033[95m"
+    RESET = "\033[0m"
+
+    def format(self, record):
+        message = super().format(record)
+        return f"{self.PINK}{message}{self.RESET}"
+
+
+# Set up the custom pink formatter for the logger
+handler = logging.StreamHandler()
+handler.setFormatter(
+    PinkFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+)
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 
 @dataclass
@@ -18,6 +45,12 @@ class ScanTarget:
     url: str
     paths: List[str]
     description: Optional[str] = None
+
+    def __post_init__(self):
+        if not self.url:
+            raise ValueError("URL cannot be empty")
+        if not self.paths:
+            raise ValueError("At least one path must be provided")
 
 
 @dataclass
@@ -58,26 +91,40 @@ class SecurityScanner:
 
     def __init__(
         self,
-        client: anthropic.Client,
+        client: anthropic.Anthropic,
         scan_target: ScanTarget,
         concurrency: int = 3,
         timeout: int = 30,
+        verify_ssl: bool = True,
     ):
+        if concurrency < 1:
+            raise ValueError("Concurrency must be positive")
+        if timeout < 1:
+            raise ValueError("Timeout must be positive")
+
         self.client = client
         self.target = scan_target
         self.concurrency = concurrency
         self.timeout = timeout
         self.logger = logging.getLogger(__name__)
         self.http_client = httpx.AsyncClient(
-            timeout=timeout,
-            follow_redirects=True,
-            verify=False,  # For testing internal labs only
+            timeout=timeout, follow_redirects=True, verify=verify_ssl
         )
 
-    async def scan(self) -> List[ScanResult]:
+    async def __aenter__(self):
+        """Async context manager entry"""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self.http_client.aclose()
+
+    async def scan(self) -> Tuple[List[ScanResult], List[str]]:
         """Run full scan across all paths"""
+        all_results = []
+        all_errors = []
+
         try:
-            all_results = []
             sem = asyncio.Semaphore(self.concurrency)
             tasks = []
 
@@ -87,24 +134,41 @@ class SecurityScanner:
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
+            logger.info(f"SQL Injection Scan results: {results}")
+
             for result in results:
                 if isinstance(result, Exception):
-                    self.logger.error(f"Scan error: {str(result)}")
+                    error_msg = f"Scan error: {str(result)}"
+                    self.logger.error(error_msg)
+                    all_errors.append(error_msg)
                 else:
                     all_results.append(result)
 
-            return all_results
+            return all_results, all_errors
 
         except Exception as e:
-            self.logger.error(f"Scan failed: {str(e)}")
-            return []
+            error_msg = f"Scan failed: {str(e)}"
+            self.logger.error(error_msg)
+            return [], [error_msg]
 
     async def _scan_path_with_semaphore(
         self, sem: asyncio.Semaphore, path: str
     ) -> ScanResult:
         """Execute scan for single path with concurrency control"""
         async with sem:
-            return await self._scan_path(path)
+            try:
+                async with asyncio.timeout(self.timeout):
+                    return await self._scan_path(path)
+            except asyncio.TimeoutError:
+                return ScanResult(
+                    target=self.target.url,
+                    path=path,
+                    timestamp=datetime.now().isoformat(),
+                    findings=[],
+                    parameters_tested=[],
+                    errors=[f"Scan timed out after {self.timeout} seconds"],
+                    success=False,
+                )
 
     async def _scan_path(self, path: str) -> ScanResult:
         """Scan single path for vulnerabilities"""
@@ -114,11 +178,9 @@ class SecurityScanner:
         parameters_tested = []
 
         try:
-            # Generate test parameters using LLM
             test_params = await self._generate_test_parameters(path)
             parameters_tested.extend(test_params)
 
-            # Execute tests for each parameter
             for param in test_params:
                 try:
                     result = await self._test_parameter(path, param)
@@ -151,14 +213,18 @@ class SecurityScanner:
         try:
             prompt = self._build_parameter_prompt(path)
             response = await self.client.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=1024,
-                temperature=0,
-                system="Security researcher analyzing controlled test environment",
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=8192,
+                system="You are expert in offensive security and penetration testing. Generate test parameters for SQL injection scan.",
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            parameters = self._parse_parameters(response.content)
+            # Safely extract content from the response
+            content = response.content[0].text if response.content else ""
+
+            logger.info(f"Generated parameters: {content}")
+
+            parameters = self._parse_parameters(content)
             return self._validate_parameters(parameters)
 
         except Exception as e:
@@ -176,22 +242,24 @@ class SecurityScanner:
         2. Different injection types
         3. Expected response patterns
         
-        Format response as YAML with structure:
-        parameters:
-          - name: <param_name>
-            value: <test_value>
-            injection_type: <type>
-            expected_pattern: <pattern>
-        
-        Focus on educational testing patterns.
+        Format response as JSON with structure:
+        {{
+            "parameters": [
+                {{
+                    "name": "<param_name>",
+                    "value": "<test_value>",
+                    "injection_type": "<type>",
+                    "expected_pattern": "<pattern>"
+                }}
+            ]
+        }}
         """
 
     def _parse_parameters(self, llm_response: str) -> List[Dict[str, Any]]:
         """Parse LLM response into parameter objects"""
         try:
-            # Extract YAML block from response
-            yaml_block = llm_response.strip().split("```yaml")[-1].split("```")[0]
-            parsed = yaml.safe_load(yaml_block)
+            # Extract JSON block from response
+            parsed = json.loads(llm_response)
             return parsed.get("parameters", [])
         except Exception as e:
             self.logger.error(f"Parameter parsing failed: {str(e)}")
@@ -201,9 +269,15 @@ class SecurityScanner:
         self, parameters: List[Dict[str, Any]]
     ) -> List[TestParameter]:
         """Validate and convert parameter dictionaries"""
+
         validated = []
+        required_fields = {"name", "value", "injection_type", "expected_pattern"}
+
         for param in parameters:
             try:
+                if not all(field in param for field in required_fields):
+                    continue
+
                 validated.append(
                     TestParameter(
                         name=str(param["name"]),
@@ -220,26 +294,31 @@ class SecurityScanner:
         self, path: str, parameter: TestParameter
     ) -> Optional[Dict[str, Any]]:
         """Test single parameter for vulnerability patterns"""
+
+        logger.info(f"Testing parameter: {parameter} and path: {path}")
+
         try:
             url = urljoin(self.target.url, path)
 
-            # Test with GET and POST
-            async with self.http_client as client:
-                get_response = await client.get(
-                    url, params={parameter.name: parameter.value}
-                )
+            logger.info(f"Testing URL: {url}")
 
-                post_response = await client.post(
-                    url, json={parameter.name: parameter.value}
-                )
-
-            # Analyze responses
             findings = {}
+
+            # Test with GET
+            get_response = await self.http_client.get(
+                url, params={parameter.name: parameter.value}
+            )
+
+            logger.info(f"GET response: {get_response}")
 
             if self._analyze_response(get_response, parameter.expected_pattern):
                 findings["get_vulnerable"] = True
                 findings["get_details"] = self._extract_response_details(get_response)
 
+            # Test with POST
+            post_response = await self.http_client.post(
+                url, json={parameter.name: parameter.value}
+            )
             if self._analyze_response(post_response, parameter.expected_pattern):
                 findings["post_vulnerable"] = True
                 findings["post_details"] = self._extract_response_details(post_response)
@@ -258,7 +337,6 @@ class SecurityScanner:
             content = response.text.lower()
             pattern = expected_pattern.lower()
 
-            # Look for error patterns
             return (
                 pattern in content
                 or "sql" in content
@@ -274,15 +352,6 @@ class SecurityScanner:
         return {
             "status_code": response.status_code,
             "headers": dict(response.headers),
-            "body_preview": response.text[:500],
+            "body_preview": response.text[:500] if response.text else "",
             "response_time": response.elapsed.total_seconds(),
         }
-
-
-async def create_scanner(
-    api_key: str, target_url: str, paths: List[str], description: Optional[str] = None
-) -> SecurityScanner:
-    """Factory function to create scanner instance"""
-    client = anthropic.Client(api_key=api_key)
-    target = ScanTarget(target_url, paths, description)
-    return SecurityScanner(client, target)

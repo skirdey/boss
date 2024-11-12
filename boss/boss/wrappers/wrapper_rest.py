@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 import jwt
 from pydantic import BaseModel, Field, ValidationError
 
+from boss.utils import serialize_task_to_string
 from boss.wrappers.wrapper_agent import WrapperAgent
 
 logging.basicConfig(
@@ -277,10 +278,10 @@ class WrapperRESTTestAgent(WrapperAgent):
             result = {
                 "task_id": str(task_id),
                 "agent_id": self.agent_id,
-                "result": json.dumps(summary),
+                "result": serialize_task_to_string(summary),
                 "metadata": {
-                    "summary": json.dumps(summary),
-                    "request_results": json.dumps(results),
+                    "summary": serialize_task_to_string(summary),
+                    "request_results": serialize_task_to_string(results),
                 },
             }
 

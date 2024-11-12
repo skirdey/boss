@@ -15,6 +15,7 @@ class BossPrompts:
 4. Considering available agent capabilities when planning
 5. Organize steps in order of growing benefits - start with steps that will yield most useful information for future steps
 6. In certain situations expected outcome can be just execution of the step, like `ping` command that can not reach the target, but it can still be useful for future steps
+7. Extract exact parameters from the step description such as URL, IP Address, API path, ports, etc.
 
 When generating steps, prioritize:
 - Clarity and precision in step descriptions
@@ -35,6 +36,7 @@ Generate a structured sequence of steps following these rules:
 2. Each step can depend on previous steps, but should not be too dependent
 3. Each step could have flexible success criteria, use common sense and step description to determine success criteria
 4. Each step should be designed to be executed by one of the available agents
+5. Extract exact parameters from the step description such as URL, IP Address, API path, ports, etc.
 
 
 Respond in JSON format matching the StepEstimationResponse model with:

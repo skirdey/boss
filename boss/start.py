@@ -22,6 +22,27 @@ from boss.wrappers.wrapper_whois import WhoisWrapperAgent
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+# Configure logging to print in bright blue
+class CustomFormatter(logging.Formatter):
+    """Custom logging formatter to print logs in bright blue."""
+
+    BLUE = "\033[94m"
+    RESET = "\033[0m"
+    FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+    def format(self, record):
+        log_fmt = self.BLUE + self.FORMAT + self.RESET
+        formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
+
+
+# Apply the custom formatter to the root logger
+handler = logging.StreamHandler()
+handler.setFormatter(CustomFormatter())
+logging.getLogger().handlers = [handler]
+
+
 # Global variables to hold component instances
 components: List[Any] = []
 threads: List[Tuple[Any, threading.Thread]] = []

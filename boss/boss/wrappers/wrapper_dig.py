@@ -6,6 +6,7 @@ from typing import Any, Dict
 from pydantic import BaseModel, Field, ValidationError
 
 # Import the pure Python dig implementation
+from boss.utils import serialize_task_to_string
 from boss.wrappers.network_utils.dig import PythonDig
 from boss.wrappers.wrapper_agent import WrapperAgent
 
@@ -130,7 +131,7 @@ class DigWrapperAgent(WrapperAgent):
             result = {
                 "task_id": str(task["_id"]),
                 "agent_id": self.agent_id,
-                "result": dig_result,
+                "result": serialize_task_to_string(dig_result),
                 "metadata": {
                     "target": parsed_command.target,
                 },

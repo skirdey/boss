@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 import anthropic
 from pydantic import BaseModel, Field
 
+from boss.utils import serialize_task_to_string
 from boss.wrappers.network_utils.sql_injection import ScanTarget, SecurityScanner
 from boss.wrappers.wrapper_agent import WrapperAgent
 
@@ -49,16 +50,19 @@ class WrapperSQLInjectionAgent(WrapperAgent):
         super().__init__(agent_id, kafka_bootstrap_servers)
         self.setup_task_logger()
 
+        self.async_anthropic = anthropic.AsyncAnthropic(
+            api_key=os.getenv("ANTHROPIC_API_KEY")
+        )
+
         self.anthropic = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
     def _parse_scan_parameters(self, task_description: str) -> ScanParameters:
         """Extract scan parameters using LLM"""
         try:
             response = self.anthropic.messages.create(
-                model="claude-3.5-naiku-latest",
-                max_tokens=1024,
-                temperature=0,
-                system="Security researcher extracting scan parameters from task description",
+                model="claude-3-5-haiku-20241022",
+                max_tokens=8192,
+                system="You are expert in offensive security and penetration testing. You are extracting scan parameters from task description",
                 messages=[
                     {
                         "role": "user",
@@ -100,7 +104,7 @@ class WrapperSQLInjectionAgent(WrapperAgent):
         """Execute security scan with given parameters"""
         try:
             scanner = SecurityScanner(
-                client=self.anthropic_client,
+                client=self.async_anthropic,
                 scan_target=ScanTarget(
                     url=params.target_url,
                     paths=params.paths,
@@ -110,6 +114,13 @@ class WrapperSQLInjectionAgent(WrapperAgent):
 
             # Run the async scan method synchronously
             results = asyncio.run(scanner.scan())
+            logger.info(
+                "\n***************** Injection SQL Results ***********************\n"
+            )
+            logger.info(f"Scan target: {params.target_url}")
+            logger.info(f"Injection scan results: {results}")
+            logger.info(f"Scan paths: {params.paths}")
+            logger.info("\n****************************************************\n")
 
             # Process and structure results
             findings = []
@@ -188,7 +199,7 @@ class WrapperSQLInjectionAgent(WrapperAgent):
             result = {
                 "task_id": str(task_id),
                 "agent_id": self.agent_id,
-                "result": scan_results,
+                "result": serialize_task_to_string(scan_results),
                 "execution_time": execution_time,
                 "metadata": {
                     "target": scan_params.target_url,

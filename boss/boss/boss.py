@@ -293,7 +293,7 @@ class BOSS:
                 logger.info(
                     f"\n\nAdditional steps: {evaluation.additional_steps_needed}\n\n"
                 )
-                self._add_additional_steps(task, evaluation)
+                # self._add_additional_steps(task, evaluation)
 
             state = (
                 TaskState.COMPLETED_STEP.value
@@ -368,7 +368,7 @@ class BOSS:
             estimation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=StepEstimationResponse,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
 
             logger.debug(f"Received estimation: {estimation}")

@@ -1,6 +1,5 @@
 # wrappers/wrapper_rest_explorer.py
 
-import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -8,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from boss.utils import serialize_task_to_string
 from boss.wrappers.network_utils.scan_apis import scan_api
 from boss.wrappers.wrapper_agent import WrapperAgent
 
@@ -164,7 +164,7 @@ class WrapperAPIExplorer(WrapperAgent):
             result = {
                 "task_id": str(task["_id"]),
                 "agent_id": self.agent_id,
-                "result": json.dumps(scan_result),
+                "result": serialize_task_to_string(scan_result),
                 "execution_time": execution_time,
                 "metadata": {
                     "target": parsed_command.target,
