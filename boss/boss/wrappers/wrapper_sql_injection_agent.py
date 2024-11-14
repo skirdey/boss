@@ -60,7 +60,7 @@ class WrapperSQLInjectionAgent(WrapperAgent):
         """Extract scan parameters using LLM"""
         try:
             response = self.anthropic.messages.create(
-                model="claude-3-5-haiku-20241022",
+                model="claude-3-5-sonnet-20241022",
                 max_tokens=8192,
                 system="You are expert in offensive security and penetration testing. You are extracting scan parameters from task description",
                 messages=[
@@ -87,18 +87,6 @@ class WrapperSQLInjectionAgent(WrapperAgent):
         except Exception as e:
             logger.error(f"Parameter parsing failed: {str(e)}")
             raise
-
-    def _validate_target(self, target_url: str) -> bool:
-        """Validate target URL"""
-        from urllib.parse import urlparse
-
-        try:
-            # Basic URL validation
-            result = urlparse(target_url)
-            return all([result.scheme, result.netloc])
-
-        except Exception:
-            return False
 
     def _execute_scan(self, params: ScanParameters) -> Dict[str, Any]:
         """Execute security scan with given parameters"""
@@ -181,14 +169,6 @@ class WrapperSQLInjectionAgent(WrapperAgent):
 
             # Parse scan parameters
             scan_params = self._parse_scan_parameters(step_description)
-
-            # Validate target
-            if not self._validate_target(scan_params.target_url):
-                return {
-                    "task_id": str(task_id),
-                    "result": f"Invalid target: {scan_params.target_url}",
-                    "note": "Target validation failed",
-                }
 
             # Execute scan
             start_time = datetime.now(timezone.utc)

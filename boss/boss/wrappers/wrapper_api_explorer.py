@@ -2,7 +2,6 @@
 
 import logging
 import os
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -69,26 +68,7 @@ class WrapperAPIExplorer(WrapperAgent):
             logger.error(f"OpenAI API request failed: {str(e)}")
             raise
 
-    def is_valid_domain_or_ip(self, target: str) -> bool:
-        """Validate if the target is a valid domain or IP address"""
-        import ipaddress
-        import re
-
-        # Validate IP address
-        try:
-            ipaddress.ip_address(target)
-            return True
-        except ValueError:
-            pass
-
-        # Validate domain name
-        domain_regex = r"^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$"
-        if re.match(domain_regex, target):
-            return True
-
-        return False
-
-    def execute_scan(self, target: str, ports: Optional[List[int]] = None) -> str:
+    def execute_scan(self, target: str, ports: Optional[List[int]] = None):
         """Execute API scan with given parameters"""
         try:
             self.task_logger.info(
@@ -103,7 +83,7 @@ class WrapperAPIExplorer(WrapperAgent):
 
         except Exception as e:
             self.task_logger.error(f"An error occurred while scanning: {str(e)}")
-            return f"An error occurred while scanning: {str(e)}"
+            return {"error": str(e)}
 
     def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(task, dict) or "_id" not in task:
@@ -127,11 +107,7 @@ class WrapperAPIExplorer(WrapperAgent):
             # Collect previous steps' results
             previous_steps = steps[:current_step_index]
             previous_step_results = "\n".join(
-                [
-                    step.get("result", "")
-                    for step in previous_steps
-                    if step.get("result")
-                ]
+                [serialize_task_to_string(step) for step in previous_steps]
             )
 
             # Combine previous results with the current step description if available
@@ -145,27 +121,15 @@ class WrapperAPIExplorer(WrapperAgent):
 
             logger.info(f"Using command parameters: target={parsed_command.target}")
 
-            # Validate the target
-            if not self.is_valid_domain_or_ip(parsed_command.target):
-                return {
-                    "task_id": str(task["_id"]),
-                    "result": f"Invalid target: {parsed_command.target}",
-                    "note": "Validation failed",
-                }
-
-            # Execute the API scan
-            start_time = datetime.now(timezone.utc)
             scan_result = self.execute_scan(
                 target=parsed_command.target, ports=parsed_command.ports
             )
-            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
             # Prepare the result to send back to BOSS
             result = {
                 "task_id": str(task["_id"]),
                 "agent_id": self.agent_id,
                 "result": serialize_task_to_string(scan_result),
-                "execution_time": execution_time,
                 "metadata": {
                     "target": parsed_command.target,
                     "ports": parsed_command.ports,

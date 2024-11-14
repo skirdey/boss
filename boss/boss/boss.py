@@ -153,7 +153,7 @@ class BOSS:
             necessity_response = self.call_openai_api_structured(
                 messages=messages,
                 response_model=NecessityCheckResponse,
-                model="gpt-4o-mini",  # noqa: F821
+                model="gpt-4o",  # noqa: F821
             )
 
             if necessity_response.is_additional_steps_needed.strip().lower() != "yes":
@@ -179,7 +179,7 @@ class BOSS:
             estimation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=StepEstimationResponse,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
 
             # Handle the case where no steps are needed
@@ -293,7 +293,7 @@ class BOSS:
                 logger.info(
                     f"\n\nAdditional steps: {evaluation.additional_steps_needed}\n\n"
                 )
-                # self._add_additional_steps(task, evaluation)
+                self._add_additional_steps(task, evaluation)
 
             state = (
                 TaskState.COMPLETED_STEP.value
@@ -413,7 +413,7 @@ class BOSS:
             evaluation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=TaskEvaluationResponse,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
 
             return evaluation
@@ -521,7 +521,7 @@ class BOSS:
             agent_analysis = self.call_openai_api_structured(
                 messages=messages,
                 response_model=AgentSelectionAnalysis,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
 
             agent_id = (
@@ -628,7 +628,7 @@ class BOSS:
             evaluation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=TaskEvaluationResponse,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
 
             # Update task status based on evaluation
@@ -679,7 +679,7 @@ class BOSS:
             evaluation = self.call_openai_api_structured(
                 messages=messages,
                 response_model=TaskEvaluationResponse,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
 
             return evaluation.success

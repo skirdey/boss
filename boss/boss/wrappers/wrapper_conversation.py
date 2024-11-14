@@ -52,7 +52,7 @@ class WrapperConversation(WrapperAgent):
             response = self.anthropic.messages.create(
                 max_tokens=8192,
                 messages=[*messages],
-                model="claude-3-5-haiku-20241022",
+                model="claude-3-5-sonnet-20241022",
             )
 
             end_time = datetime.now(timezone.utc)

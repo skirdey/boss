@@ -40,7 +40,7 @@ class WrapperPing(WrapperAgent):
 
         try:
             completion = self.openai_client.beta.chat.completions.parse(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -83,25 +83,6 @@ class WrapperPing(WrapperAgent):
             self.task_logger.error(f"An error occurred while executing ping: {str(e)}")
             return f"An error occurred while executing ping: {str(e)}"
 
-    def is_valid_domain_or_ip(self, target: str) -> bool:
-        """Validate if the target is a valid domain or IP address"""
-        import ipaddress
-        import re
-
-        # Validate IP address
-        try:
-            ipaddress.ip_address(target)
-            return True
-        except ValueError:
-            pass
-
-        # Validate domain name
-        domain_regex = r"^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$"
-        if re.match(domain_regex, target):
-            return True
-
-        return False
-
     def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(task, dict) or "_id" not in task:
             logger.error("Invalid task format")
@@ -141,14 +122,6 @@ class WrapperPing(WrapperAgent):
             parsed_command = self._call_openai_api(task_prompt)
 
             logger.info(f"Using command parameters: target={parsed_command.target}")
-
-            # Validate the target
-            if not self.is_valid_domain_or_ip(parsed_command.target):
-                return {
-                    "task_id": str(task["_id"]),
-                    "result": f"Invalid target: {parsed_command.target}",
-                    "note": "Validation failed",
-                }
 
             # Execute the ping command
             start_time = datetime.now(timezone.utc)

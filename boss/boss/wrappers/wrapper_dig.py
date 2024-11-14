@@ -41,7 +41,7 @@ class DigWrapperAgent(WrapperAgent):
 
         try:
             completion = self.openai_client.beta.chat.completions.parse(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",

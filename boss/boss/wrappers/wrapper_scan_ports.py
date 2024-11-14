@@ -46,7 +46,7 @@ class WrapperScanPortAgent(WrapperAgent):
 
         try:
             completion = self.openai_client.beta.chat.completions.parse(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -72,7 +72,7 @@ class WrapperScanPortAgent(WrapperAgent):
         """Use LLM to determine which ports to scan based on previous steps"""
         try:
             completion = self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",

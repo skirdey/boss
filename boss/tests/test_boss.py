@@ -276,12 +276,12 @@ def test_call_openai_api_structured_success():
         response = boss.call_openai_api_structured(
             messages=[{"role": "user", "content": "Test message"}],
             response_model=MockResponseModel,
-            model="gpt-4o-mini",
+            model="gpt-4o",
         )
 
         # Assert OpenAI API was called with correct parameters
         boss.openai_client.beta.chat.completions.parse.assert_called_once_with(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             messages=[{"role": "user", "content": "Test message"}],
             temperature=0,
             response_format=MockResponseModel,
@@ -344,7 +344,7 @@ def test_call_openai_api_structured_failure():
             boss.call_openai_api_structured(
                 messages=[{"role": "user", "content": "Test message"}],
                 response_model=MockResponseModel,
-                model="gpt-4o-mini",
+                model="gpt-4o",
             )
         assert "API error" in str(exc_info.value)
 

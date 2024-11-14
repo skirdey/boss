@@ -16,7 +16,6 @@ from boss.wrappers.wrapper_rest import WrapperRESTTestAgent
 from boss.wrappers.wrapper_scan_ports import WrapperScanPortAgent
 from boss.wrappers.wrapper_sql_injection_agent import WrapperSQLInjectionAgent
 from boss.wrappers.wrapper_websocket import WrapperWebSocketTestAgent
-from boss.wrappers.wrapper_whois import WhoisWrapperAgent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -148,7 +147,6 @@ def main():
         WrapperConversation,
         WrapperScanPortAgent,
         WrapperGetSSLCertificateAgent,
-        WhoisWrapperAgent,
         DigWrapperAgent,
         WrapperRESTTestAgent,
         WrapperWebSocketTestAgent,

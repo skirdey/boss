@@ -762,6 +762,7 @@ class APIScanner:
 
         # Define common API endpoint paths
         api_paths = [
+            # API Documentation and Specification
             "/openapi.json",
             "/openapi.yaml",
             "/docs",
@@ -789,6 +790,160 @@ class APIScanner:
             "/keys",
             "/status",
             "/ping",
+            "/api/swagger-resources",
+            "/v2/api-docs",
+            "/v3/api-docs",
+            "/.well-known",
+            "/api/openapi",
+            "/api/spec",
+            "/api/schema",
+            # REST API paths
+            "/api",
+            "/api/v1",
+            "/rest",
+            "/rest/v1",
+            "/api/rest",
+            "/api/rest/v1",
+            "/api/health",
+            "/api/status",
+            "/api/metrics",
+            "/metrics",
+            "/health",
+            "/healthchek",
+            "/actuator",
+            "/actuator/health",
+            "/actuator/metrics",
+            "/management",
+            "/management/health",
+            "/api/latest",
+            "/api/beta",
+            "/api/alpha",
+            "/api/stable",
+            "/api/experimental",
+            "/api/internal",
+            "/api/v4",
+            "/api/v5",
+            "/api/v6",
+            "/api/v7",
+            "/api/v8",
+            "/api/v9",
+            "/api/v10",
+            "/api/version",
+            "/api/versions",
+            "/api/info",
+            "/api/config",
+            "/api/settings",
+            # Authentication endpoints
+            "/auth",
+            "/oauth",
+            "/oauth2",
+            "/login",
+            "/api/auth",
+            "/api/login",
+            "/auth/login",
+            "/api/oauth",
+            "/api/token",
+            "/api/refresh",
+            "/api/logout",
+            "/api/register",
+            "/api/password",
+            "/api/verify",
+            "/api/2fa",
+            "/api/sso",
+            "/api/oidc",
+            "/api/jwt",
+            # WebSocket endpoints
+            "/ws",
+            "/websocket",
+            "/socket",
+            "/socket.io",
+            "/api/ws",
+            "/api/websocket",
+            "/api/socket",
+            "/api/socket.io",
+            "/wss",
+            "/api/wss",
+            "/api/socket.io/1",
+            "/api/socket.io/2",
+            # SPA framework paths
+            "/app",
+            "/static",
+            "/assets",
+            "/dist",
+            "/build",
+            "/public",
+            "/_next",
+            "/webpack",
+            "/index.html",
+            "/favicon.ico",
+            "/robots.txt",
+            "/sitemap.xml",
+            # Common framework-specific paths
+            "/rails/info",
+            "/laravel",
+            "/django",
+            "/spring",
+            "/flask",
+            "/express",
+            "/nginx_status",
+            "/server-status",
+            "/rails/logs",
+            "/rails/db",
+            "/laravel/storage",
+            "/laravel/public",
+            "/django/admin",
+            "/django/media",
+            "/spring/actuator",
+            "/flask/debug",
+            "/express/logs",
+            "/nginx/conf",
+            "/apache/status",
+            # Debug/dev endpoints
+            "/debug",
+            "/dev",
+            "/test",
+            "/api/debug",
+            "/api/dev",
+            "/api/test",
+            "/api/console",
+            "/admin",
+            "/api/admin",
+            "/api/debug/logs",
+            "/api/dev/logs",
+            "/api/test/logs",
+            "/api/console/logs",
+            "/api/admin/logs",
+            "/api/debug/info",
+            "/api/dev/info",
+            "/api/test/info",
+            "/api/console/info",
+            "/api/admin/info",
+            # Common backend framework paths
+            "/rails/info",
+            "/laravel",
+            "/django",
+            "/spring",
+            "/flask",
+            "/express",
+            "/nginx_status",
+            "/server-status",
+            "/rails/logs",
+            "/rails/db",
+            "/laravel/storage",
+            "/laravel/public",
+            "/django/admin",
+            "/django/media",
+            "/spring/actuator",
+            "/flask/debug",
+            "/express/logs",
+            "/nginx/conf",
+            "/apache/status",
+            "/api/gql",
+            "/api/graphql",
+            "/api/graphql/",
+            "/gql",
+            "/socket.io/v3",
+            "/wss/v2",
         ]
 
         def scan_port_api(port):
@@ -817,7 +972,7 @@ class APIScanner:
                 except Exception as e:
                     # Log the error but continue scanning
                     self._log_error(
-                        f"Error making request to {path} on port {port}: {e}"
+                        f"Error making request to {url} on port {port}: {e}"
                     )
 
         # Use ThreadPoolExecutor for parallel API scanning
@@ -835,15 +990,6 @@ class APIScanner:
         """Log error messages."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"{timestamp} [ERROR] {message}")
-
-    def save_results(self, filepath: str = "scan_results.json"):
-        """Save the scan results to a JSON file."""
-        try:
-            with open(filepath, "w") as f:
-                json.dump(self.results, f, indent=4)
-            print(f"[+] Results saved to {filepath}")
-        except Exception as e:
-            print(f"[-] Failed to save results: {e}")
 
     def scan(
         self, scan_api_enabled: bool = False, api_ports: Optional[List[int]] = None
