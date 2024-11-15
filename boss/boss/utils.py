@@ -50,6 +50,14 @@ def ensure_timezone_aware(dt: Optional[datetime]) -> Optional[datetime]:
         return dt.replace(tzinfo=timezone.utc)
     return dt
 
+def get_iso_timestamp(input_dt: Optional[datetime] = None) -> str:
+    """Get a timezone-aware ISO 8601 timestamp with 'Z' at the end"""
+    dt = input_dt or datetime.now(timezone.utc)
+    iso_string = dt.isoformat()
+    if iso_string.endswith("+00:00"):
+        iso_string = iso_string[:-6] + "Z"
+    return iso_string
+
 
 def get_object_id(id_value) -> Optional[ObjectId]:
     """Safely convert string to ObjectId"""

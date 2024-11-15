@@ -118,6 +118,10 @@ class StepEstimate(BaseModel):
         description="Whether this step requires the previous step to be completed"
     )
 
+    targets: Optional[List[str]] = Field(
+        default=None, description="List of targets for this step often in the 'url:port' format"
+    )
+
 
 class StepEstimationResponse(BaseModel):
     """Response model for step estimation"""
@@ -133,6 +137,8 @@ class StepEstimationResponse(BaseModel):
         default=None, description="Optional additional steps that might be needed"
     )
     overall_plan: str = Field(description="Overall plan for the execution")
+
+    
 
 
 @dataclass

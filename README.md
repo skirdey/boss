@@ -117,6 +117,8 @@ Data Flow:
    - **Kafka Message Broker**
    - **MongoDB Database**
 
+   You can also run `docker compose down -v` to clear out kafka topics and volumes.
+
 ### Launching BOSS
 
 1. **Initialize the Orchestration System:**
