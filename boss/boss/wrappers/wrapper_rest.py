@@ -72,20 +72,22 @@ class WrapperRESTTestAgent(WrapperAgent):
 
         try:
             system_prompt = """
-            Extract REST API test parameters from the task description. Consider:
-            1. Identify the endpoint and HTTP method
-            2. Determine authentication requirements
-            3. Generate between 1 to 10 appropriate test scenarios based on the HTML response and common REST patterns
-            4. Include relevant headers and body parameters
-            
-            Common test scenarios:
-            - normal: Standard API call with valid authentication
-            - malformed_token: Test with incorrectly formatted authentication token
-            - expired_token: Test with an expired authentication token
-            - missing_auth: Test without required authentication
-            - invalid_params: Test with invalid request parameters
-            - ... (add more as needed)
-            """
+                Extract REST API test parameters from the task description. Make sure to:
+                1. **Identify the exact endpoint URL and HTTP method.**
+                2. Determine authentication requirements.
+                3. Generate between 1 to 10 appropriate test scenarios based on the HTML response and common REST patterns.
+                4. Include relevant headers and body parameters.
+
+                Common test scenarios:
+                - normal: Standard API call with valid authentication.
+                - malformed_token: Test with incorrectly formatted authentication token.
+                - expired_token: Test with an expired authentication token.
+                - missing_auth: Test without required authentication.
+                - invalid_params: Test with invalid request parameters.
+                - ... (add more as needed)
+
+                **Ensure that the extracted URL is valid and includes the correct hostname and path.**
+                """
 
             completion = self.openai_client.beta.chat.completions.parse(
                 model="gpt-4o",
@@ -129,6 +131,8 @@ class WrapperRESTTestAgent(WrapperAgent):
                         "scenario": result.get("scenario"),
                         "error": result.get("error"),
                         "status_code": result.get("status_code"),
+                        "response_body": result.get("response_body"),
+                        "response_headers": result.get("response_headers"),
                     }
                 )
             else:

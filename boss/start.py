@@ -7,6 +7,7 @@ import time
 from typing import Any, List, Tuple
 
 from boss.boss import BOSS
+from boss.wrappers.wrapper_whois import WhoisWrapperAgent
 from boss.wrappers.wrapper_html import WrapperHTML
 from boss.events import shutdown_event
 from boss.wrappers.wrapper_api_explorer import WrapperAPIExplorer
@@ -166,16 +167,18 @@ def main():
 
     components_to_start = [
         BOSS,
-        # WrapperPing,
-        # WrapperConversation,
-        # WrapperScanPortAgent,
+        WrapperPing,
+        WrapperConversation,
+        WrapperScanPortAgent,
         # WrapperGetSSLCertificateAgent,
         # DigWrapperAgent,
-        # WrapperRESTTestAgent,
+        WrapperRESTTestAgent,
         # WrapperWebSocketTestAgent,
         WrapperAPIExplorer,
         WrapperSQLInjectionAgent,
-        # WrapperHTML,
+        WrapperHTML,
+        # WhoisWrapperAgent,
+
     ]
 
     try:

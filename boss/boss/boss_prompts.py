@@ -38,6 +38,12 @@ Generate a structured sequence of steps following these rules:
 4. Each step should be designed to be executed by one of the available agents
 5. Extract exact parameters from the step description such as URL, IP Address, API path, ports, etc.
 
+- Avoid steps that are too similar to each other
+- Avoid steps that are too complex or require too much setup
+- Avoid steps that are not likely to yield useful information for future steps
+- Avoid steps that are not likely to be useful for the task as a whole
+- Avoid using agents that won't provide useful information for the task as a whole
+
 
 Respond in JSON format matching the StepEstimationResponse model with:
 - Detailed step descriptions

@@ -146,6 +146,7 @@ class BOSS:
                     f"Current steps and their states:\n{all_steps_info}\n\n"
                     f"Results of completed steps:\n{previous_step_results}\n\n"
                     f"Evaluation explanation: {evaluation_response.explanation}\n\n"
+                    f"Agents available: {self._get_agent_capabilities()}\n\n"
                     f"Based on the above, do we truly need additional steps to complete this task? Answer 'Yes' or 'No' and provide a brief justification."
                 )
             )
@@ -215,7 +216,7 @@ class BOSS:
                 {"_id": ObjectId(task_id)},
                 {
                     "$set": {
-                        "steps": all_steps,
+                        "steps": serialize_task(all_steps),
                         "updated_at": datetime.now(timezone.utc),
                     }
                 },
@@ -245,23 +246,14 @@ class BOSS:
             )
 
     def handle_agent_result(self, result: Dict[str, Any]):
-        """
-        Handle the result received from an agent via Kafka with improved step validation and error handling.
-
-        Args:
-            result (Dict[str, Any]): The result dictionary containing task_id and result data
-        """
         try:
-            # Initialize variables that will be used in multiple scopes
             next_step_index = None
             task_id = result.get("task_id")
 
-            # Validate basic requirements
             if not task_id:
                 logger.error("Received result without task_id.")
                 return
 
-            # Fetch and validate task
             task = self.tasks_collection.find_one({"_id": ObjectId(task_id)})
             if not task:
                 logger.error(f"Task {task_id} not found in database.")
@@ -277,25 +269,21 @@ class BOSS:
                 logger.error(f"Invalid current_step_index for task {task_id}")
                 return
 
-            # Get current step details
             current_step = steps[current_step_index]
             step_description = current_step.get("step_description", "")
             agent_result = result.get("result", "")
             expected_outcome = current_step.get("expected_outcome", "")
 
-            # Evaluate step result
-            evaluation: TaskEvaluationResponse = self._evaluate_step_result_with_llm(
+            evaluation = self._evaluate_step_result_with_llm(
                 step_description=step_description,
                 step_result=agent_result,
                 expected_outcome=expected_outcome,
             )
 
-            logger.info(f"\n\nEvaluation: {evaluation}\n\n")
+            logger.info(f"Evaluation: {evaluation}")
 
             if evaluation.additional_steps_needed:
-                logger.info(
-                    f"\n\nAdditional steps: {evaluation.additional_steps_needed}\n\n"
-                )
+                logger.info(f"Additional steps: {evaluation.additional_steps_needed}")
                 self._add_additional_steps(task, evaluation)
 
             state = (
@@ -316,13 +304,14 @@ class BOSS:
                     "Result does not satisfy the step description and expected outcome."
                 )
 
-            if evaluation.success:
-                for idx, step in enumerate(
-                    steps[current_step_index + 1 :], start=current_step_index + 1
-                ):
-                    if step.get("state") == TaskState.CREATED.value:
-                        next_step_index = idx
-                        break
+            # Always determine the next step index
+            next_step_index = None
+            for idx, step in enumerate(
+                steps[current_step_index + 1 :], start=current_step_index + 1
+            ):
+                if step.get("state") == TaskState.CREATED.value:
+                    next_step_index = idx
+                    break
 
             update_fields["current_step_index"] = next_step_index
 
@@ -338,10 +327,18 @@ class BOSS:
             if next_step_index is not None:
                 self._process_task_with_inference(updated_task)
             else:
-                self._perform_final_evaluation(updated_task)
+                # Check for any remaining pending steps before final evaluation
+                pending_steps = [
+                    step for step in steps if step.get("state") == TaskState.CREATED.value
+                ]
+                if pending_steps:
+                    self._process_task_with_inference(updated_task)
+                else:
+                    self._perform_final_evaluation(updated_task)
 
         except Exception as e:
             logger.error(f"Error handling agent result: {str(e)}", exc_info=True)
+
 
     def _generate_steps_from_description(self, description: str) -> List[Dict]:
         """Generate steps from task description using OpenAI LLM"""
@@ -352,12 +349,7 @@ class BOSS:
                 logger.warning("No active agents available for step estimation.")
                 return []
 
-            capabilities_list = ", ".join(
-                [
-                    f"{agent['agent_id']}: {', '.join(agent['capabilities'])}"
-                    for agent in active_agents
-                ]
-            )
+            capabilities_list = self._get_agent_capabilities()
             logger.debug(f"Aggregated Agent Capabilities: {capabilities_list}")
 
             # Format messages properly for OpenAI API
@@ -918,7 +910,7 @@ class BOSS:
         self,
         messages: List[Dict[str, str]],
         response_model: type[BaseModel],
-        model: str = "gpt-4o",
+        model: str = "gpt-4o-mini",
     ) -> BaseModel:
         """
         Make a structured call to OpenAI API with Pydantic model parsing
@@ -991,7 +983,7 @@ class BOSS:
             active_agents = list(self.agents_collection.find({"status": "active"}))
             return ", ".join(
                 [
-                    f"{agent['agent_id']}: {', '.join(agent['capabilities'])}"
+                    f"{agent['agent_id']}: {', '.join(agent['capabilities'] + [f'Priority: {agent['priority']}'])}"
                     for agent in active_agents
                 ]
             )
@@ -1015,9 +1007,7 @@ class BOSS:
 
                 details = (
                     f"Agent: {agent['agent_id']}\n"
-                    f"Capabilities: {', '.join(agent['capabilities'])}\n"
-                    f"Current workload: {current_tasks} tasks\n"
-                    f"Status: {agent['status']}\n"
+                    f"Capabilities: {', '.join(agent['capabilities'] + [f'Priority: {agent['priority']}'])}\n"
                     "---"
                 )
                 agent_details.append(details)

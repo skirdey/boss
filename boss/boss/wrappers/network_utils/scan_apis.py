@@ -17,7 +17,7 @@ import dns.resolver
 
 
 class APIScanner:
-    def __init__(self, target: str, ports: List[int] = None, threads: int = 10):
+    def __init__(self, target: str, ports: List[int] = None, threads: int = 100):
         """Initialize the WESSy scanner with extended capabilities."""
         self.target = self._clean_target(target)
         self.ports = ports or [
@@ -1091,5 +1091,5 @@ class APIScanner:
 
 
 def scan_api(target: str, ports: Optional[List[int]] = None) -> Dict:
-    scanner = APIScanner(target)
+    scanner = APIScanner(target, ports)
     return scanner.scan(scan_api_enabled=True, api_ports=ports)

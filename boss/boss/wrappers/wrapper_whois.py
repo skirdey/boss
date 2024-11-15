@@ -1,9 +1,10 @@
-import json
+
 import logging
 import os
 import socket
+import re
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class WhoisLookupCommand(BaseModel):
-    """Model for whois lookup command parameters"""
+    """Model for WHOIS lookup command parameters"""
 
     target: str = Field(description="Domain name to be used for WHOIS lookup.")
 
@@ -39,7 +40,7 @@ class WhoisWrapperAgent(WrapperAgent):
 
         try:
             completion = self.openai_client.beta.chat.completions.parse(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "system",
@@ -65,8 +66,8 @@ class WhoisWrapperAgent(WrapperAgent):
         self,
         target: str,
     ) -> Dict[str, Any]:
-        """Execute WHOIS lookup for the given domain"""
-        tld = target.split(".")[-1]
+        """Execute WHOIS lookup for the given domain and return a formatted report"""
+        tld = target.split(".")[-1].lower()
         if tld in ["com", "net", "org", "info", "biz"]:
             server = "whois.verisign-grs.com"
         elif tld == "io":
@@ -98,11 +99,57 @@ class WhoisWrapperAgent(WrapperAgent):
             self.task_logger.info(
                 f"WHOIS lookup completed in {execution_time:.2f} seconds."
             )
-            return {"whois_data": response.decode()}
+
+            # Parse the WHOIS response
+            parsed_report = self.parse_whois_response(response.decode())
+
+            return {"whois_report": parsed_report}
 
         except Exception as e:
             self.task_logger.error(f"An error occurred during WHOIS lookup: {str(e)}")
             return {"error": f"An error occurred during WHOIS lookup: {str(e)}"}
+
+    def parse_whois_response(self, whois_data: str) -> str:
+        """Parse the raw WHOIS data and format it into a readable report"""
+
+        # Define regex patterns for desired fields
+        patterns = {
+            "Registrar": r"Registrar:\s*(.+)",
+            "Creation Date": r"Creation Date:\s*(.+)",
+            "Updated Date": r"Updated Date:\s*(.+)",
+            "Expiration Date": r"Expiration Date:\s*(.+)",
+            "Registrant Name": r"Registrant Name:\s*(.+)",
+            "Registrant Organization": r"Registrant Organization:\s*(.+)",
+            "Registrant Email": r"Registrant Email:\s*(.+)",
+            "Registrant Phone": r"Registrant Phone:\s*(.+)",
+        }
+
+        extracted_data = {}
+
+        for field, pattern in patterns.items():
+            match = re.search(pattern, whois_data, re.IGNORECASE)
+            if match:
+                extracted_data[field] = match.group(1).strip()
+            else:
+                extracted_data[field] = "Not Available"
+
+        # Format the extracted data into a report string
+        report = (
+            f"WHOIS Report for {extracted_data.get('Registrar', 'N/A')}\n"
+            f"{'-'*60}\n"
+            f"Registrar: {extracted_data.get('Registrar')}\n"
+            f"Creation Date: {extracted_data.get('Creation Date')}\n"
+            f"Updated Date: {extracted_data.get('Updated Date')}\n"
+            f"Expiration Date: {extracted_data.get('Expiration Date')}\n\n"
+            f"Registrant Information:\n"
+            f"Name: {extracted_data.get('Registrant Name')}\n"
+            f"Organization: {extracted_data.get('Registrant Organization')}\n"
+            f"Email: {extracted_data.get('Registrant Email')}\n"
+            f"Phone: {extracted_data.get('Registrant Phone')}\n"
+        )
+
+        logger.info("Formatted WHOIS report created.")
+        return report
 
     def is_valid_target(self, target: str) -> bool:
         """Validate if the target is a valid domain or hostname"""
@@ -152,13 +199,22 @@ class WhoisWrapperAgent(WrapperAgent):
             # Execute the WHOIS lookup
             whois_result = self.execute_whois_lookup(target=parsed_command.target)
 
-            # Prepare the result to send back to BOSS
-            result = {
-                "task_id": str(task["_id"]),
-                "agent_id": self.agent_id,
-                "result": json.dumps(whois_result),
-                "metadata": {"target": parsed_command.target},
-            }
+            if "whois_report" in whois_result:
+                # Prepare the result to send back to BOSS
+                result = {
+                    "task_id": str(task["_id"]),
+                    "agent_id": self.agent_id,
+                    "result": whois_result["whois_report"],
+                    "metadata": {"target": parsed_command.target},
+                }
+            else:
+                # Handle errors
+                result = {
+                    "task_id": str(task["_id"]),
+                    "agent_id": self.agent_id,
+                    "error": whois_result.get("error", "Unknown error"),
+                    "note": "WHOIS lookup failed",
+                }
 
             return result
 

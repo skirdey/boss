@@ -4,6 +4,8 @@ from typing import Optional
 from bson import ObjectId
 from flask import json
 
+from boss.models import StepEstimate
+
 
 def serialize_task_to_string(task):
     return json.dumps(serialize_task(task))
@@ -14,6 +16,8 @@ def serialize_task(task):
     Recursively converts ObjectId, datetime, and Anthropic TextBlock instances in a MongoDB document to strings,
     ensuring datetimes are in ISO 8601 format with 'Z' at the end.
     """
+    if isinstance(task, StepEstimate):
+        return task.model_dump() # Convert the object to a dictionary
     if isinstance(task, dict):
         return {k: serialize_task(v) for k, v in task.items()}
     elif isinstance(task, list):

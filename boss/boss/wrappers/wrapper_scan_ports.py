@@ -46,7 +46,7 @@ class WrapperScanPortAgent(WrapperAgent):
 
         try:
             completion = self.openai_client.beta.chat.completions.parse(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "system",
@@ -72,7 +72,7 @@ class WrapperScanPortAgent(WrapperAgent):
         """Use LLM to determine which ports to scan based on previous steps"""
         try:
             completion = self.openai_client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "system",
@@ -133,23 +133,6 @@ class WrapperScanPortAgent(WrapperAgent):
             self.task_logger.error(f"An error occurred during port scan: {str(e)}")
             return f"An error occurred during port scan: {str(e)}"
 
-    def is_valid_target(self, target: str) -> bool:
-        """Validate if the target is a valid domain, hostname, or IP address"""
-        import ipaddress
-
-        # Validate IP address
-        try:
-            ipaddress.ip_address(target)
-            return True
-        except ValueError:
-            pass
-
-        # Validate hostname (simpler regex for hostname validation)
-        hostname_regex = r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
-        if re.match(hostname_regex, target):
-            return True
-
-        return False
 
     def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(task, dict) or "_id" not in task:
@@ -193,14 +176,6 @@ class WrapperScanPortAgent(WrapperAgent):
             parsed_command = self._call_openai_api(previous_steps_info)
 
             logger.info(f"Using command parameters: target={parsed_command.target}")
-
-            # Validate the target
-            if not self.is_valid_target(parsed_command.target):
-                return {
-                    "task_id": str(task["_id"]),
-                    "result": f"Invalid target: {parsed_command.target}",
-                    "note": "Validation failed",
-                }
 
             # Use LLM to determine ports to scan
             ports_to_scan = self.get_ports_to_scan(previous_steps_info)
