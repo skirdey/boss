@@ -219,13 +219,13 @@ If you use BOSS in your research or applications, please cite:
 
 ```bibtex
 @software{boss2024,
-  author = {Skirdey},
+  author = {Stanislav Kirdey},
   title = {BOSS: Multi-Agent LLM Operating System For Offensive Security},
   year = {2024},
   publisher = {GitHub},
   journal = {GitHub repository},
   howpublished = {\url{https://github.com/skirdey/boss}},
-  commit = {INSERT-COMMIT-HASH},
+  commit = {253d93f48dfffe51fd7203f596f8ccdfd068fb96},
   note = {A multi-agent system leveraging LLMs for orchestrating offensive security tasks}
 }
 
