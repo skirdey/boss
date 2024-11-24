@@ -8,7 +8,7 @@ db.tasks.insertMany([
     {
         "_id": ObjectId(),
         "notes": "",
-        "description": "ping 127.0.0.1",
+        "description": "Explore 127.0.0.1/WebGoat for vulnerabilities",
         "status": "Created",
         "created_at": new Date(),
         "updated_at": new Date(),
@@ -25,31 +25,42 @@ db.tasks.insertMany([
 // Agents collection with enhanced capabilities
 db.createCollection('agents');
 db.agents.insertMany([
-    {
-        "agent_id": "agent_network_ping",
-        "capabilities": [
-            "can interact with command line interface to call `ping` command, this agent is able to ping a given IP or a domain and return the results without any additional setup in a single step"
-        ],
-        "status": "active",
-        "priority": 50
 
-    },
-    {
-        "agent_id": "agent_conversation",
-        "capabilities": [
-            "can analyze data, answer questions, and provide broad insights (do not have access to CLI or internet) - this agent is perfect for research, reasoning, data analysis, etc."
-        ],
-        "status": "active",
-        "priority": 50
-
-    },
-
+    // works as expected
     // {
-    //     "agent_id": "agent_html_analyzer",
-    //     "capabilities": ["High priority agent. This gets raw HTML content and returns a JSON object with the raw HTML and its url"],
+    //     "agent_id": "agent_network_ping",
+    //     "capabilities": [
+    //         "can interact with command line interface to call `ping` command, this agent is able to ping a given IP or a domain and return the results without any additional setup in a single step"
+    //     ],
     //     "status": "active",
-    //     "priority": 100
+    //     "priority": 50
     // },
+
+    // works as expected
+    // {
+    //     "agent_id": "agent_conversation",
+    //     "capabilities": [
+    //         "can analyze data, answer questions, and provide broad insights (do not have access to CLI or internet) - this agent is perfect for research, reasoning, data analysis, etc."
+    //     ],
+    //     "status": "active",
+    //     "priority": 50
+    // },
+
+    // works as expected
+    // {
+    //     "agent_id": "agent_network_dig_lookup",
+    //     "capabilities": ["can perform a dig lookup on a given domain and return the results without any additional setup in a single step"],
+    //     "status": "active",
+    //     "priority": 50
+    // },
+
+
+    {
+        "agent_id": "agent_html_analyzer",
+        "capabilities": ["High priority agent. This gets raw HTML content and returns a JSON object with the raw HTML and its url"],
+        "status": "active",
+        "priority": 100
+    },
 
 
     // {
@@ -81,12 +92,7 @@ db.agents.insertMany([
     // //     ],
     // //     "status": "active",
     // // },
-    // // {
-    // //     "agent_id": "agent_network_dig_lookup",
-    // //     "capabilities": ["can perform a dig lookup on a given domain and return the results without any additional setup in a single step"],
-    // //     "status": "active",
-    // //     "priority": 50
-    // // },
+
     // {
     //     "agent_id": "agent_rest_tester",
     //     "capabilities": ["High priority agent. Can test REST endpoints by sending requests and receiving responses"],

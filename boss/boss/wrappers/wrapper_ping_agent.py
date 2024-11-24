@@ -26,6 +26,7 @@ class PingCommand(BaseModel):
     target: str = Field(description="FQDN or IP address to ping.")
 
 
+# Wroks as expected
 class WrapperPing(WrapperAgent):
     def __init__(
         self,

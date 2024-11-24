@@ -6,8 +6,7 @@ from typing import Any, List
 
 from boss.boss import BOSS
 from boss.self_play import SelfPlayMCTS
-from boss.wrappers.wrapper_conversation import WrapperConversation
-from boss.wrappers.wrapper_ping_agent import WrapperPing
+from boss.wrappers.wrapper_dig_agent import WrapperDigAgent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -78,8 +77,9 @@ async def main():
                 "selfplay_response_queue": selfplay_response_queue,
             },
         ),
-        WrapperPing,
-        WrapperConversation,
+        # WrapperPing,
+        # WrapperConversation,
+        WrapperDigAgent,
         # Add other components as needed
     ]
 

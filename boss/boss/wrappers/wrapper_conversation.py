@@ -33,6 +33,7 @@ class ConversationResult(BaseModel):
     metrics: Dict = Field(default_factory=dict)
 
 
+# Works as expected
 class WrapperConversation(WrapperAgent):
     def __init__(
         self,
