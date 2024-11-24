@@ -1,0 +1,79 @@
+services:
+  kafka:
+    image: bitnami/kafka:3.8.1
+    container_name: kafka
+    environment:
+      # KRaft mode configurations
+      KAFKA_CFG_NODE_ID: '1'
+      KAFKA_CFG_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_CFG_LISTENERS: 'PLAINTEXT://:9092,CONTROLLER://:9093'
+      KAFKA_CFG_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092'
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: 'PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT'
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      ALLOW_PLAINTEXT_LISTENER: 'yes'
+      # Development optimizations
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: '1'
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: '1'
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: '1'
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    ports:
+      - '9092:9092'
+    volumes:
+      - kafka_data:/bitnami/kafka
+    healthcheck:
+      test: [ "CMD", "bash", "-c", "echo > /dev/tcp/localhost/9092" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:5.0
+    container_name: mongodb
+    restart: always
+    ports:
+      - '27017:27017'
+    volumes:
+      - ./mongodb-init.js:/docker-entrypoint-initdb.d/mongodb-init.js:ro
+    healthcheck:
+      test: [ "CMD", "mongo", "--eval", "db.adminCommand('ping')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  flask_app:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: flask_app
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      MONGO_URI: 'mongodb://mongodb:27017/'
+    ports:
+      - '5000:5000'
+
+  webgoat:
+    image: webgoat/webgoat:latest
+    container_name: webgoat
+    ports:
+      - "8080:8080"
+    environment:
+      - WEBGOAT_HOST=webgoat
+      - WEBGOAT_PORT=8080
+    volumes:
+      - webgoat_data:/home/webgoat/.webgoat
+    networks:
+      - webgoat_net
+    restart: unless-stopped
+
+volumes:
+  kafka_data:
+  webgoat_data:
+networks:
+  webgoat_net:
+    driver: bridge

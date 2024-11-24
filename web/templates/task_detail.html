@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Task details and management view">
+    <title>Task Detail | Task Manager</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+    <style>
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        .skip-link {
+            position: absolute;
+            top: -40px;
+            left: 0;
+            background: #2563eb;
+            color: white;
+            padding: 8px;
+            z-index: 100;
+            transition: top 0.2s;
+        }
+
+        .skip-link:focus {
+            top: 0;
+        }
+
+        *:focus-visible {
+            outline: 3px solid #2563eb;
+            outline-offset: 2px;
+        }
+
+        /* Preserve whitespace in code blocks */
+        .preserve-whitespace {
+            white-space: pre-wrap;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.875rem;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status-completed {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-pending {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen bg-gray-50">
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <!-- Header -->
+    <header class="bg-white shadow-sm" role="banner">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <a href="{{ url_for('index') }}" class="text-xl font-bold text-gray-900" aria-label="Task Manager home">
+                    Task Manager
+                </a>
+                <a href="{{ url_for('new_task') }}"
+                    class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    aria-label="Create new task">
+                    Create New Task
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main id="main-content" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+            <!-- Task Details Section -->
+            <div class="p-6">
+                <h1 class="text-2xl font-bold text-gray-900 mb-6">Task Details</h1>
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <tbody class="divide-y divide-gray-200">
+                            <tr>
+                                <th scope="row"
+                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">ID</th>
+                                <td class="px-6 py-4 text-sm text-gray-500">{{ task._id }}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row"
+                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Description
+                                </th>
+                                <td class="px-6 py-4 text-sm text-gray-500">{{ task.description }}</td>
+                            </tr>
+                            {% if task.evaluation_criteria %}
+                            <tr>
+                                <th scope="row"
+                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Evaluation
+                                    Criteria</th>
+                                <td class="px-6 py-4 text-sm text-gray-500">{{ task.evaluation_criteria }}</td>
+                            </tr>
+                            {% endif %}
+                            <tr>
+                                <th scope="row"
+                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Status</th>
+                                <td class="px-6 py-4">
+                                    <span class="status-badge status-{{ task.status.lower() }}">{{ task.status }}</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row"
+                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Created At
+                                </th>
+                                <td class="px-6 py-4 text-sm text-gray-500">
+                                    <time datetime="{{ task.created_at }}">{{ task.created_at }}</time>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row"
+                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Updated At
+                                </th>
+                                <td class="px-6 py-4 text-sm text-gray-500">
+                                    <time datetime="{{ task.updated_at }}">{{ task.updated_at }}</time>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row"
+                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Evaluation
+                                    Criteria</th>
+                                <td class="px-6 py-4 text-sm text-gray-500">{{ task.evaluation_criteria }}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row"
+                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Current
+                                    Step Index</th>
+                                <td class="px-6 py-4 text-sm text-gray-500">{{ task.current_step_index if
+                                    task.current_step_index is not none else 'None' }}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row"
+                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Current
+                                    Agent</th>
+                                <td class="px-6 py-4 text-sm text-gray-500">{{ task.current_agent if task.current_agent
+                                    is not none else 'None' }}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row"
+                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Finished At
+                                </th>
+                                <td class="px-6 py-4 text-sm text-gray-500">
+                                    {% if task.finished_at %}
+                                    <time datetime="{{ task.finished_at }}">{{ task.finished_at}}</time>
+                                    {% else %}
+                                    None
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row"
+                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Notes</th>
+                                <td class="px-6 py-4 text-sm text-gray-500">{{ task.notes if task.notes else 'None' }}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Steps Section -->
+            {% if task.steps %}
+            <div class="border-t border-gray-200 p-6">
+                <h2 class="text-xl font-bold text-gray-900 mb-6">Steps</h2>
+                {% for step in task.steps %}
+                <div class="bg-gray-50 rounded-lg p-6 mb-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <h3 class="text-sm font-medium text-gray-900">Step {{ step.step_number }}</h3>
+                            <p class="mt-1 text-sm text-gray-500">{{ step.step_description }}</p>
+                            {% if step.expected_outcome %}
+                            <p class="mt-1 text-sm text-gray-500">Expected Outcome: {{ step.expected_outcome }}</p>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <span class="status-badge status-{{ step.state.lower() }}">{{ step.state }}</span>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <p class="text-gray-500">Created:
+                                <time datetime="{{ step.created_at }}">{{ step.created_at}}</time>
+                            </p>
+                            <p class="text-gray-500">Updated:
+                                <time datetime="{{ step.updated_at }}">{{ step.updated_at}}</time>
+                            </p>
+                        </div>
+                    </div>
+                    {% if step.result %}
+                    <div class="mt-4">
+                        <h4 class="text-sm font-medium text-gray-900 mb-2">Result</h4>
+                        <div class="bg-gray-100 rounded-md p-4">
+                            <pre class="preserve-whitespace text-gray-600">{{ step.result }}</pre>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if step.error %}
+                    <div class="mt-4">
+                        <h4 class="text-sm font-medium text-gray-900 mb-2">Error</h4>
+                        <div class="bg-red-100 rounded-md p-4">
+                            <pre class="preserve-whitespace text-red-600">{{ step.error }}</pre>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <!-- Action Buttons -->
+            <div class="border-t border-gray-200 p-6">
+                <div class="flex flex-wrap gap-4">
+                    <form method="post" action="{{ url_for('delete_task', task_id=task._id) }}"
+                        onsubmit="return confirm('Are you sure you want to delete this task?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit"
+                            class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                            aria-label="Delete this task">
+                            Delete Task
+                        </button>
+                    </form>
+
+                    <a href="{{ url_for('index') }}"
+                        class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        aria-label="Return to task list">
+                        Back to Task List
+                    </a>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white mt-8 border-t border-gray-200" role="contentinfo">
+        <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+            <p class="text-center text-sm text-gray-500">
+                Task Manager - Accessible and responsive task management system
+            </p>
+        </div>
+    </footer>
+</body>
+
+</html>

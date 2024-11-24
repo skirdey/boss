@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Task management system - View and manage your tasks">
+    <title>Task List | Task Manager</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+    <style>
+        /* Preserve transitions for those who want them */
+        @media (prefers-reduced-motion: no-preference) {
+            .task-card {
+                transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            }
+        }
+
+        /* Hide transitions for users who prefer reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+
+        .task-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        /* Skip link styles */
+        .skip-link {
+            position: absolute;
+            top: -40px;
+            left: 0;
+            background: #2563eb;
+            color: white;
+            padding: 8px;
+            z-index: 100;
+            transition: top 0.2s;
+        }
+
+        .skip-link:focus {
+            top: 0;
+        }
+
+        /* High contrast mode support */
+        @media (forced-colors: active) {
+            .button {
+                border: 2px solid currentColor;
+            }
+        }
+
+        /* Focus styles */
+        *:focus-visible {
+            outline: 3px solid #2563eb;
+            outline-offset: 2px;
+        }
+
+        /* Status badge styles */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: capitalize;
+        }
+
+        .status-created {
+            background-color: #dbeafe;
+            color: #1e40af;
+        }
+
+        .status-running {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-completed {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-failed {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+
+        /* Search input styles */
+        .search-wrapper {
+            position: relative;
+        }
+
+        .search-wrapper svg {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            pointer-events: none;
+        }
+
+        /* Table scroll for mobile */
+        .table-container {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        @media (max-width: 640px) {
+            .task-card__content {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 1rem;
+            }
+
+            .task-actions {
+                width: 100%;
+                display: flex;
+                justify-content: flex-start;
+            }
+        }
+    </style>
+</head>
+
+<body class="min-h-screen bg-gray-50">
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <header class="bg-white shadow-sm fixed w-full top-0 z-10" role="banner">
+        <nav class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" role="navigation" aria-label="Main navigation">
+            <div class="flex justify-between h-16 items-center">
+                <a href="{{ url_for('index') }}" class="text-xl font-bold text-gray-900" aria-label="Task Manager home">
+                    Task Manager
+                </a>
+                <a href="{{ url_for('new_task') }}"
+                    class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    aria-label="Create new task">
+                    Create New Task
+                </a>
+            </div>
+        </nav>
+    </header>
+
+    <main id="main-content" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-6">
+        <!-- Search and Filter Section -->
+        <div class="bg-white rounded-lg shadow-sm p-4 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="search-wrapper">
+                    <label for="task-search" class="block text-sm font-medium text-gray-700 mb-1">Search Tasks</label>
+                    <input type="search" id="task-search"
+                        class="block w-full rounded-md border-gray-300 pr-10 focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        placeholder="Search tasks..." aria-label="Search tasks">
+                    <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                </div>
+
+                <div>
+                    <label for="status-filter" class="block text-sm font-medium text-gray-700 mb-1">Filter by
+                        Status</label>
+                    <select id="status-filter"
+                        class="block w-full rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        aria-label="Filter tasks by status">
+                        <option value="">All statuses</option>
+                        <option value="created">Created</option>
+                        <option value="running">Running</option>
+                        <option value="completed">Completed</option>
+                        <option value="failed">Failed</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tasks List -->
+        <div class="space-y-4">
+            {% for task in tasks %}
+            <article class="task-card bg-white rounded-lg shadow-sm overflow-hidden">
+                <div class="p-6">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                        <div class="flex-grow">
+                            <h2 class="text-lg font-medium text-gray-900 mb-1">{{ task.description }}</h2>
+                            <div class="flex flex-wrap gap-4 items-center text-sm text-gray-500">
+                                <div>
+                                    <span class="status-badge status-{{ task.css_status }}">
+                                        {{ task.status.replace('_', ' ') }}
+                                    </span>
+                                </div>
+                                <div>
+                                    <time datetime="{{ task.created_at }}">
+                                        Created: {{ task.created_at.strftime('%b %d, %Y %H:%M') }}
+                                    </time>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="task-actions">
+                            <a href="{{ url_for('task_detail', task_id=task._id) }}"
+                                class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                aria-label="View details for task: {{ task.description }}">
+                                View Details
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </article>
+            {% else %}
+            <div class="bg-white rounded-lg shadow-sm p-6 text-center text-gray-500">
+                No tasks found. Create a new task to get started.
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Reset Tasks Form -->
+        <div class="mt-8">
+            <form method="post" action="{{ url_for('reset_tasks') }}" id="reset-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit"
+                    class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                    Reset All Tasks
+                </button>
+            </form>
+        </div>
+    </main>
+
+    <footer class="bg-white mt-8 border-t border-gray-200" role="contentinfo">
+        <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+            <p class="text-center text-sm text-gray-500">
+                Task Manager - Accessible and responsive task management system
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // Initialize search and filter functionality
+        document.addEventListener('DOMContentLoaded', function () {
+            const searchInput = document.getElementById('task-search');
+            const statusFilter = document.getElementById('status-filter');
+            const taskCards = document.querySelectorAll('.task-card');
+
+            function filterTasks() {
+                const searchTerm = searchInput.value.toLowerCase();
+                const statusValue = statusFilter.value.toLowerCase();
+
+                taskCards.forEach(card => {
+                    const description = card.querySelector('h2').textContent.toLowerCase();
+                    const status = card.querySelector('.status-badge').textContent.trim().toLowerCase();
+
+                    const matchesSearch = description.includes(searchTerm);
+                    const matchesStatus = !statusValue || status === statusValue;
+
+                    card.style.display = matchesSearch && matchesStatus ? 'block' : 'none';
+                });
+            }
+
+            searchInput.addEventListener('input', filterTasks);
+            statusFilter.addEventListener('change', filterTasks);
+
+            // Reset confirmation
+            document.getElementById('reset-form').addEventListener('submit', function (e) {
+                if (!confirm('Are you sure you want to reset all tasks? This action cannot be undone.')) {
+                    e.preventDefault();
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
