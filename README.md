@@ -196,6 +196,39 @@ class TaskState(str, Enum):
     FINAL_COMPLETION = "Final_Completion"
 ```
 
+## References
+
+This work builds upon and is inspired by several key papers in the field of LLM reasoning and optimization:
+
+1. **LLaMA-Berry**: [LLaMA-Berry: Pairwise Optimization for O1-like Olympiad-Level Mathematical Reasoning](https://arxiv.org/abs/2410.02884)
+   - Introduces novel approaches for mathematical reasoning optimization in LLMs
+
+2. **Marco-o1**: [Marco-o1: Towards Open Reasoning Models for Open-Ended Solutions](https://arxiv.org/abs/2411.14405)
+   - Paper: [arXiv](https://arxiv.org/abs/2411.14405)
+   - Model: [Hugging Face - AIDC-AI/Marco-o1](https://huggingface.co/AIDC-AI/Marco-o1)
+
+3. **LLaVA-o1**: [LLaVA-o1: Let Vision Language Models Reason Step-by-Step](https://arxiv.org/abs/2411.10440)
+   - Demonstrates step-by-step reasoning capabilities in vision-language models
+
+4. **LLaVA-CoT**: [Let Vision Language Models Reason Step-by-Step](https://github.com/PKU-YuanGroup/LLaVA-CoT)
+   - Implementation of Chain-of-Thought reasoning for vision-language tasks
+
+## Citation
+
+If you use BOSS in your research or applications, please cite:
+
+```bibtex
+@software{boss2024,
+  author = {Skirdey},
+  title = {BOSS: Multi-Agent LLM Operating System For Offensive Security},
+  year = {2024},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/skirdey/boss}},
+  commit = {INSERT-COMMIT-HASH},
+  note = {A multi-agent system leveraging LLMs for orchestrating offensive security tasks}
+}
+
 ## License
 
 This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
