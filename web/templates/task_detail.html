@@ -214,25 +214,57 @@
                 <h2 class="text-xl font-bold text-gray-900 mb-6">Task Tree Structure</h2>
                 <div class="tree">
                     {% macro render_tree(node) %}
-                        <ul>
-                            <li>
-                                <div class="flex items-center">
-                                    <span class="flex-shrink-0 h-2 w-2 bg-blue-500 rounded-full mr-2"></span>
-                                    <div>
-                                        <p class="text-sm font-medium text-gray-900">{{ node.step_description or 'No Description' }}</p>
-                                        {% if node.agent_id %}
-                                        <p class="text-xs text-gray-500">Agent: {{ node.agent_id }}</p>
+                    <ul>
+                        <li>
+                            <div class="flex items-start">
+                                <span class="flex-shrink-0 h-2 w-2 bg-blue-500 rounded-full mr-2 mt-1"></span>
+                                <div>
+                                    <p class="text-sm font-medium text-gray-900">{{ node.step_description or 'No Description' }}</p>
+                                    {% if node.agent_id %}
+                                    <p class="text-xs text-gray-500">Agent: {{ node.agent_id }}</p>
+                                    {% endif %}
+                                    <p class="text-xs text-gray-500">Visits: {{ node.visits }}, Value: {{ node.value }}</p>
+
+                                    {% if node.llm_evaluation %}
+                                    <div class="mt-2 ml-4 border-l-2 border-gray-200 pl-4">
+                                        <h4 class="text-sm font-semibold text-gray-900 mb-2">LLM Evaluation</h4>
+                                        {% if node.llm_evaluation.score is defined %}
+                                        <p class="text-xs text-gray-500"><strong>Score:</strong> {{ node.llm_evaluation.score }}</p>
                                         {% endif %}
-                                        <p class="text-xs text-gray-500">Visits: {{ node.visits }}, Value: {{ node.value }}</p>
+                                        {% if node.llm_evaluation.success is defined %}
+                                        <p class="text-xs text-gray-500"><strong>Success:</strong> {{ node.llm_evaluation.success }}</p>
+                                        {% endif %}
+                                        {% if node.llm_evaluation.confidence_score is defined %}
+                                        <p class="text-xs text-gray-500"><strong>Confidence Score:</strong> {{ node.llm_evaluation.confidence_score }}</p>
+                                        {% endif %}
+                                        {% if node.llm_evaluation.reasoning %}
+                                        <p class="text-xs text-gray-500"><strong>Reasoning:</strong> {{ node.llm_evaluation.reasoning }}</p>
+                                        {% endif %}
+                                        {% if node.llm_evaluation.explanation %}
+                                        <p class="text-xs text-gray-500"><strong>Explanation:</strong> {{ node.llm_evaluation.explanation }}</p>
+                                        {% endif %}
+                                        {% if node.llm_evaluation.critique %}
+                                        <p class="text-xs text-gray-500"><strong>Critique:</strong> {{ node.llm_evaluation.critique }}</p>
+                                        {% endif %}
+                                        {% if node.llm_evaluation.agent_output %}
+                                        <div class="mt-2">
+                                            <h5 class="text-xs font-medium text-gray-900 mb-1">Agent Output:</h5>
+                                            <div class="bg-gray-100 rounded-md p-2">
+                                                <pre class="preserve-whitespace text-gray-600">{{ node.llm_evaluation.agent_output }}</pre>
+                                            </div>
+                                        </div>
+                                        {% endif %}
                                     </div>
+                                    {% endif %}
                                 </div>
-                                {% if node.children %}
-                                    {% for child in node.children %}
-                                        {{ render_tree(child) }}
-                                    {% endfor %}
-                                {% endif %}
-                            </li>
-                        </ul>
+                            </div>
+                            {% if node.children %}
+                            {% for child in node.children %}
+                            {{ render_tree(child) }}
+                            {% endfor %}
+                            {% endif %}
+                        </li>
+                    </ul>
                     {% endmacro %}
 
                     {{ render_tree(task.tree_structure) }}
