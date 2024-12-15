@@ -61,6 +61,42 @@
             background-color: #fef3c7;
             color: #92400e;
         }
+
+        /* Tree Structure Styles */
+        .tree ul {
+            list-style-type: none;
+            position: relative;
+            padding-left: 1.5rem;
+        }
+
+        .tree ul::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0.75rem;
+            border-left: 2px solid #e5e7eb;
+            bottom: 0;
+        }
+
+        .tree li {
+            margin: 0;
+            padding: 0.5rem 0;
+            position: relative;
+        }
+
+        .tree li::before {
+            content: '';
+            position: absolute;
+            top: 0.75rem;
+            left: -0.75rem;
+            width: 1.5rem;
+            height: 0;
+            border-top: 2px solid #e5e7eb;
+        }
+
+        .tree li:last-child::before {
+            border-left: 2px solid transparent;
+        }
     </style>
 </head>
 
@@ -137,12 +173,6 @@
                             </tr>
                             <tr>
                                 <th scope="row"
-                                    class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Evaluation
-                                    Criteria</th>
-                                <td class="px-6 py-4 text-sm text-gray-500">{{ task.evaluation_criteria }}</td>
-                            </tr>
-                            <tr>
-                                <th scope="row"
                                     class="px-6 py-4 text-sm font-medium text-gray-900 bg-gray-50 text-left">Current
                                     Step Index</th>
                                 <td class="px-6 py-4 text-sm text-gray-500">{{ task.current_step_index if
@@ -177,6 +207,70 @@
                     </table>
                 </div>
             </div>
+
+            <!-- Tree Structure Section -->
+            {% if task.tree_structure %}
+            <div class="border-t border-gray-200 p-6">
+                <h2 class="text-xl font-bold text-gray-900 mb-6">Task Tree Structure</h2>
+                <div class="tree">
+                    {% macro render_tree(node) %}
+                    <ul>
+                        <li>
+                            <div class="flex items-start">
+                                <span class="flex-shrink-0 h-2 w-2 bg-blue-500 rounded-full mr-2 mt-1"></span>
+                                <div>
+                                    <p class="text-sm font-medium text-gray-900">{{ node.step_description or 'No Description' }}</p>
+                                    {% if node.agent_id %}
+                                    <p class="text-xs text-gray-500">Agent: {{ node.agent_id }}</p>
+                                    {% endif %}
+                                    <p class="text-xs text-gray-500">Visits: {{ node.visits }}, Value: {{ node.value }}</p>
+
+                                    {% if node.llm_evaluation %}
+                                    <div class="mt-2 ml-4 border-l-2 border-gray-200 pl-4">
+                                        <h4 class="text-sm font-semibold text-gray-900 mb-2">LLM Evaluation</h4>
+                                        {% if node.llm_evaluation.score is defined %}
+                                        <p class="text-xs text-gray-500"><strong>Score:</strong> {{ node.llm_evaluation.score }}</p>
+                                        {% endif %}
+                                        {% if node.llm_evaluation.success is defined %}
+                                        <p class="text-xs text-gray-500"><strong>Success:</strong> {{ node.llm_evaluation.success }}</p>
+                                        {% endif %}
+                                        {% if node.llm_evaluation.confidence_score is defined %}
+                                        <p class="text-xs text-gray-500"><strong>Confidence Score:</strong> {{ node.llm_evaluation.confidence_score }}</p>
+                                        {% endif %}
+                                        {% if node.llm_evaluation.reasoning %}
+                                        <p class="text-xs text-gray-500"><strong>Reasoning:</strong> {{ node.llm_evaluation.reasoning }}</p>
+                                        {% endif %}
+                                        {% if node.llm_evaluation.explanation %}
+                                        <p class="text-xs text-gray-500"><strong>Explanation:</strong> {{ node.llm_evaluation.explanation }}</p>
+                                        {% endif %}
+                                        {% if node.llm_evaluation.critique %}
+                                        <p class="text-xs text-gray-500"><strong>Critique:</strong> {{ node.llm_evaluation.critique }}</p>
+                                        {% endif %}
+                                        {% if node.llm_evaluation.agent_output %}
+                                        <div class="mt-2">
+                                            <h5 class="text-xs font-medium text-gray-900 mb-1">Agent Output:</h5>
+                                            <div class="bg-gray-100 rounded-md p-2">
+                                                <pre class="preserve-whitespace text-gray-600">{{ node.llm_evaluation.agent_output }}</pre>
+                                            </div>
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% if node.children %}
+                            {% for child in node.children %}
+                            {{ render_tree(child) }}
+                            {% endfor %}
+                            {% endif %}
+                        </li>
+                    </ul>
+                    {% endmacro %}
+
+                    {{ render_tree(task.tree_structure) }}
+                </div>
+            </div>
+            {% endif %}
 
             <!-- Steps Section -->
             {% if task.steps %}
