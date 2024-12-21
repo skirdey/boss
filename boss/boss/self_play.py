@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 
 import motor.motor_asyncio
 from bson import ObjectId
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from boss.boss_prompts import BossPrompts
 from boss.llm_client import call_openai_api_structured
@@ -18,7 +18,10 @@ class EstimatedNode(BaseModel):
     expected_outcome: Optional[str] = None
     confidence_score: Optional[float] = None  # Value between 0 and 1
     estimated_duration_minutes: Optional[int] = None
-    targets: Optional[List[str]] = None  # Any targets or resources needed
+    targets: Optional[List[str]] = Field(
+        default=None,
+        description="List of targets for this step often in the 'url:port' or 'protocol://url:port' format",
+    )
 
 
 class StepGenerationResponse(BaseModel):
@@ -73,6 +76,7 @@ class TreeNode:
         step_description: Optional[str] = None,
         agent_id: Optional[str] = None,
         parent: Optional["TreeNode"] = None,
+        targets: Optional[List[str]] = None,
     ):
         self.task_id: str = task_id
         self.step_id: str = step_id if step_id else str(ObjectId())
@@ -82,6 +86,8 @@ class TreeNode:
         self.value: float = 0.0
         self.parent: Optional["TreeNode"] = parent
         self.reasoning: Optional[str] = None
+
+        self.targets: Optional[List[str]] = targets
 
         self.children: List["TreeNode"] = []
         self.untried_steps: List[EstimatedNode] = []
@@ -329,7 +335,7 @@ class SelfPlayMCTS:
             task_id = str(task["_id"])
             self.task_store[task_id] = task
 
-            logger.info(f"SelfPlay received task: {task}")
+            logger.info(f"SelfPlay received task: {task.get('_id')}")
 
             # Run MCTS to select step and agent
             await self.select_step_and_agent(task)
@@ -446,6 +452,8 @@ class SelfPlayMCTS:
             )
             return
 
+        final_targets = node.targets if node.targets else task.get("targets", [])
+
         # Prepare the task execution request
         execution_request = {
             "task_id": node.task_id,
@@ -453,6 +461,7 @@ class SelfPlayMCTS:
             "step_description": node.step_description,
             "agent_id": node.agent_id,
             "task_description": task.get("description", ""),
+            "targets": final_targets,
         }
 
         # Send the request to BOSS via the queue
@@ -573,7 +582,7 @@ class SelfPlayMCTS:
             )
             return None
 
-    async def _tree_policy(self, node: TreeNode, max_depth: int = 10) -> TreeNode:
+    async def _tree_policy(self, node: TreeNode, max_depth: int = 3) -> TreeNode:
         """Select a node to expand or explore asynchronously."""
         current_depth = 0
         current_node = node
@@ -629,6 +638,7 @@ class SelfPlayMCTS:
             task_id=node.task_id,
             step_id=str(ObjectId()),
             step_description=step_description,
+            targets=step.targets,  # Assign targets here
             parent=node,
         )
 
@@ -757,7 +767,7 @@ class SelfPlayMCTS:
         while current.parent is not None:
             depth += 1
             current = current.parent
-            if depth > 100:  # Safeguard against circular references
+            if depth > 3:  # Safeguard against circular references
                 logger.warning("Detected possible circular reference in MCTS tree")
                 return True
 

@@ -106,26 +106,6 @@ Provide evaluation in TaskEvaluationResponse format including:
 - Any additional steps needed
 """
 
-    TASK_COMPLEXITY_SYSTEM = """You are offensive security and penetration testing expert and You are an expert system for analyzing task complexity and priority.
-"""
-
-    # Task complexity user prompt template
-    TASK_COMPLEXITY_USER = """Task Description:
-{task_description}
-
-Analyze the task considering:
-1. Overall complexity level
-2. Priority factors
-3. Resource requirements
-4. Time constraints
-
-Provide analysis in TaskComplexityResponse format with:
-- Complexity classification
-- Priority score
-- Detailed reasoning
-- Time estimates
-"""
-
     # All other methods remain exactly the same as in the original
     @staticmethod
     def format_additional_steps_necessity_check(

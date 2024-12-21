@@ -140,7 +140,7 @@ class WrapperAgent(ABC):
                 task = message.value
                 task_id = task.get("task_id", "unknown")
                 self.task_logger.info(
-                    f"Received task: {task_id} for agent {self.agent_id} with task {task}"
+                    f"Received task: {task_id} for agent {self.agent_id} with task {task.get('_id')}"
                 )
 
                 # Acquire semaphore before starting a new task

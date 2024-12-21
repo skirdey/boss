@@ -143,6 +143,7 @@ class BOSS:
                 task_id = response["task_id"]
                 step_id = response["step_id"]
                 agent_id = response["agent_id"]
+                targets = response.get("targets", [])
                 step_description = response.get("step_description", "")
 
                 logger.info(f"Handling selfplay response: {response}")
@@ -152,25 +153,30 @@ class BOSS:
 
                 # Send the step to the agent
                 await self._send_current_step_to_agent(
-                    task_id, step_id, step_description, agent_id
+                    task_id, step_id, step_description, agent_id, targets
                 )
             except Exception as e:
                 logger.error(f"Error handling selfplay response: {e}")
 
     async def _update_task_with_step_and_agent(self, task_id, step_id, agent_id):
+        # Ensure tree_structure.children exists
+        await self.tasks_collection.update_one(
+            {"_id": ObjectId(task_id)},
+            {"$setOnInsert": {"tree_structure": {"children": []}}},
+            upsert=True,
+        )
+
+        # Now perform the array update
         try:
-            # Update the task document in the database
             update_result = await self.tasks_collection.update_one(
-                {"_id": ObjectId(task_id)},
+                {"_id": ObjectId(task_id), "tree_structure.children.step_id": step_id},
                 {
                     "$set": {
                         "status": "In_Progress",
-                        "tree_structure.children.$[child].agent_id": agent_id,
-                        "tree_structure.children.$[child].step_id": step_id,
-                        "tree_structure.children.$[child].status": "Assigned",
+                        "tree_structure.children.$.agent_id": agent_id,
+                        "tree_structure.children.$.status": "Assigned",
                     }
                 },
-                array_filters=[{"child.step_id": step_id}],
             )
 
             if update_result.modified_count > 0:
@@ -179,7 +185,7 @@ class BOSS:
                 )
             else:
                 logger.warning(
-                    f"No documents were updated for task {task_id} with step {step_id}."
+                    f"No documents were updated for task {task_id} with step {step_id}. Ensure the step_id matches an existing child."
                 )
         except Exception as e:
             logger.error(
@@ -187,7 +193,7 @@ class BOSS:
             )
 
     async def _send_current_step_to_agent(
-        self, task_id, step_id, step_description, agent_id
+        self, task_id, step_id, step_description, agent_id, targets
     ):
         logger.info(
             f"Sending current step {step_id} for task {task_id} to agent {agent_id}"
@@ -211,6 +217,7 @@ class BOSS:
             "step_id": step_id,
             "description": step_description,
             "evaluation_criteria": "Any information or entry points are discovered about the target",
+            "targets": targets,
         }
 
         try:
@@ -234,7 +241,7 @@ class BOSS:
                 async for task in self.tasks_collection.find(
                     {"status": {"$in": [TaskState.CREATED.value]}}
                 ):
-                    logger.info(f"Found task: {task}")
+                    logger.info(f"Found task: {task.get("_id")}")
 
                     await self.task_queue.put(task)
                     # Update task status to prevent reprocessing
@@ -250,7 +257,7 @@ class BOSS:
     async def process_tasks(self):
         while self.running:
             task = await self.task_queue.get()
-            print(f"Processing task: {task}")
+            print(f"Processing task: {task.get('_id')}")
             # Process the task
 
     async def start(self):

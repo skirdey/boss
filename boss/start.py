@@ -6,7 +6,14 @@ from typing import Any, List
 
 from boss.boss import BOSS
 from boss.self_play import SelfPlayMCTS
+from boss.wrappers.wrapper_api_explorer_agent import WrapperAPIExplorerAgent
+from boss.wrappers.wrapper_conversation import WrapperConversation
 from boss.wrappers.wrapper_dig_agent import WrapperDigAgent
+from boss.wrappers.wrapper_html_analyzer_agent import WrapperHTMLAnalyzerAgent
+from boss.wrappers.wrapper_ping_agent import WrapperPing
+from boss.wrappers.wrapper_ssl_cert_analysis_agent import (
+    WrapperGetSSLCertificateAnalysisAgent,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -77,9 +84,12 @@ async def main():
                 "selfplay_response_queue": selfplay_response_queue,
             },
         ),
-        # WrapperPing,
-        # WrapperConversation,
+        WrapperPing,
+        WrapperConversation,
         WrapperDigAgent,
+        WrapperHTMLAnalyzerAgent,
+        WrapperGetSSLCertificateAnalysisAgent,
+        WrapperAPIExplorerAgent,
         # Add other components as needed
     ]
 
