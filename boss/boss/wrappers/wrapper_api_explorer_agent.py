@@ -1,5 +1,4 @@
-# wrappers/wrapper_rest_explorer.py
-
+import asyncio
 import logging
 import os
 from typing import Any, Dict, List, Optional
@@ -9,9 +8,6 @@ from pydantic import BaseModel, Field
 from boss.utils import serialize_task_to_string
 from boss.wrappers.network_utils.scan_apis import scan_api
 from boss.wrappers.wrapper_agent import WrapperAgent
-
-# Assuming the APIScanner code is available in the same module or can be imported
-# from apiscanner import APIScanner
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,11 +23,12 @@ class RestExplorerCommand(BaseModel):
 
     target: str = Field(description="FQDN or IP address to scan for API endpoints.")
     ports: Optional[List[int]] = Field(
-        description="List of ports to scan for API endpoints. If not provided, default ports will be used."
+        default=None,
+        description="List of ports to scan for API endpoints. If not provided, default ports will be used.",
     )
 
 
-class WrapperAPIExplorer(WrapperAgent):
+class WrapperAPIExplorerAgent(WrapperAgent):
     def __init__(
         self,
         agent_id="agent_api_explorer",
@@ -40,13 +37,13 @@ class WrapperAPIExplorer(WrapperAgent):
         super().__init__(agent_id, kafka_bootstrap_servers)
         self.setup_task_logger()
 
-    def _call_openai_api(self, prompt):
-        """Call OpenAI API with structured output parsing"""
+    async def _call_openai_api(self, prompt: str) -> Optional[RestExplorerCommand]:
+        """Asynchronously call OpenAI API with structured output parsing."""
         if not os.getenv("OPENAI_API_KEY"):
             raise ValueError("OPENAI_API_KEY environment variable is not set")
 
         try:
-            completion = self.openai_client.beta.chat.completions.parse(
+            completion = await self.openai_client.beta.chat.completions.parse(
                 model="gpt-4o-mini",
                 messages=[
                     {
@@ -54,6 +51,7 @@ class WrapperAPIExplorer(WrapperAgent):
                         "content": (
                             "Extract the FQDN or IP address and ports from the provided text to be used "
                             "as a target for scanning REST API endpoints. Remove http or https or www from the target."
+                            "Use valid targets based on the provided text. Do not use example.com or any other generic domain names."
                         ),
                     },
                     {"role": "user", "content": prompt},
@@ -69,81 +67,78 @@ class WrapperAPIExplorer(WrapperAgent):
             logger.error(f"OpenAI API request failed: {str(e)}")
             return None
 
-    def execute_scan(self, target: str, ports: Optional[List[int]] = None):
-        """Execute API scan with given parameters"""
+    async def execute_scan(
+        self, target: str, ports: Optional[List[int]] = None
+    ) -> Dict[str, Any]:
+        """Asynchronously execute the API scan with given parameters."""
         try:
             self.task_logger.info(
                 f"Executing API scan on target: {target} with ports {ports}"
             )
 
-            # Instantiate the APIScanner with the target
-            report = scan_api(target, ports)
+            # Run the synchronous scan in a thread pool
+            report = await asyncio.to_thread(scan_api, target, ports)
 
             self.task_logger.info("API scan completed.")
             return report
-
         except Exception as e:
             self.task_logger.error(f"An error occurred while scanning: {str(e)}")
             return {"error": str(e)}
 
-    def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
-        if not isinstance(task, dict) or "_id" not in task:
+    async def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        """Asynchronously process the API exploration task."""
+        self.task_logger.info("**************** API EXPLORER AGENT ****************")
+        self.task_logger.info(f"{task}\n\n")
+
+        # Validate required fields
+        if not isinstance(task, dict) or "task_id" not in task or "step_id" not in task:
             logger.error("Invalid task format")
             return self._create_task_result(
-                task.get("_id"), error="Invalid task format"
+                task_id=task.get("task_id", "unknown"),
+                step_id=task.get("step_id", "unknown"),
+                error="Invalid task format",
             )
+
+        task_id = task.get("task_id")
+        step_id = task.get("step_id")
+        description = task.get("description", "")
 
         try:
-            task_id = task.get("_id")
-            self.task_logger.info(f"Processing task with ID: {task_id}")
+            # Parse the command using the task's description
+            parsed_command = await self._call_openai_api(description)
 
-            # Extract current step index and steps
-            current_step_index = task.get("current_step_index")
-            steps = task.get("steps", [])
-            if current_step_index is None or current_step_index >= len(steps):
-                logger.error("Invalid current_step_index")
+            if not parsed_command:
                 return self._create_task_result(
-                    task.get("_id"), error="Invalid current_step_index"
+                    task_id=task_id,
+                    step_id=step_id,
+                    error="Failed to parse command from the description",
                 )
 
-            current_step = steps[current_step_index]
-            step_description = current_step.get("step_description", "")
-
-            # Collect previous steps' results
-            previous_steps = steps[:current_step_index]
-            previous_step_results = "\n".join(
-                [serialize_task_to_string(step) for step in previous_steps]
+            logger.info(
+                f"Using command parameters: target={parsed_command.target}, ports={parsed_command.ports}"
             )
 
-            # Combine previous results with the current step description if available
-            if previous_step_results:
-                task_prompt = f"Previous step results:\n{previous_step_results}\n\nCurrent step:\n{step_description}"
-            else:
-                task_prompt = f"Current step:\n{step_description}"
-
-            task_prompt += "\n\nChoose the most probable target and ports to scan for API endpoints based on the previous steps description."
-
-            # Parse the command using structured output
-            parsed_command = self._call_openai_api(task_prompt)
-
-            logger.info(f"Using command parameters: target={parsed_command.target}")
-
-            scan_result = self.execute_scan(
+            # Execute the API scan
+            scan_result = await self.execute_scan(
                 target=parsed_command.target, ports=parsed_command.ports
             )
 
-            # Prepare the result to send back to BOSS
-            result = self._create_task_result(
-                task.get("_id"),
+            # Prepare and return the result
+            return self._create_task_result(
+                task_id=task_id,
+                step_id=step_id,
+                step_description=description,
                 result=serialize_task_to_string(scan_result),
-                step_description=step_description,
+                metadata={
+                    "target": parsed_command.target,
+                    "ports": parsed_command.ports if parsed_command.ports else None,
+                },
             )
-
-            return result
 
         except Exception as e:
             logger.error(f"Error processing task: {str(e)}")
-            result = self._create_task_result(
-                task.get("_id"), error=f"Error processing task: {str(e)}"
+            return self._create_task_result(
+                task_id=task_id,
+                step_id=step_id,
+                error=str(e),
             )
-            return result

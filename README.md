@@ -141,7 +141,12 @@ The LLM serves multiple roles:
    - Kafka Message Broker
    - MongoDB Database
 
-   Run `docker compose down -v` to clear kafka topics and volumes.
+   Run `docker compose down -v && docker compose down && docker compose up` to clear kafka topics and volumes and restart the services.
+
+5. **Run BOSS:**
+   ```bash
+   python boss/start.py
+   ```
 
 ### Environment Variables
 

@@ -2,14 +2,13 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 import aiohttp
 from bs4 import BeautifulSoup, Comment
 from pydantic import BaseModel
 
-from boss.models import TaskState
 from boss.utils import get_iso_timestamp, serialize_task_to_string
 from boss.wrappers.wrapper_agent import WrapperAgent
 
@@ -31,7 +30,7 @@ class HTMLAnalysisResult(BaseModel):
     success: bool
     error: Optional[str]
     timestamp: datetime
-    metrics: Dict = Dict[str, str]
+    metrics: Dict[str, Any] = {}
 
 
 class HTMLScanResult(BaseModel):
@@ -41,6 +40,7 @@ class HTMLScanResult(BaseModel):
     analysis: HTMLAnalysisResult
 
 
+# Works as expected
 class WrapperHTMLAnalyzerAgent(WrapperAgent):
     def __init__(
         self,
@@ -49,6 +49,7 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
     ):
         super().__init__(agent_id, kafka_bootstrap_servers)
         self.agent_id = agent_id
+        self.setup_task_logger()
 
     async def fetch_html(self, target: str) -> Tuple[str, Dict[str, str]]:
         """Fetch HTML content and headers from target"""
@@ -150,7 +151,6 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
         for header, info in security_headers.items():
             if header in headers:
                 info["present"] = True
-                # Additional checks can be implemented here (e.g., CSP strength)
             else:
                 vulnerabilities.append(
                     {
@@ -161,15 +161,12 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
                     }
                 )
 
-        # Check for mixed content (HTTPS pages loading HTTP resources)
+        # Check for mixed content
         parsed_url = urlparse(url)
         if parsed_url.scheme == "https":
-            mixed_content = False
-            # Check for src attributes with http
             for tag in soup.find_all(src=True):
                 src = tag["src"]
                 if src.startswith("http://"):
-                    mixed_content = True
                     vulnerabilities.append(
                         {
                             "type": "Mixed Content",
@@ -178,11 +175,10 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
                             "location": f"<{tag.name} src>",
                         }
                     )
-            # Check for href attributes with http for resources like stylesheets
+
             for tag in soup.find_all(href=True):
                 href = tag["href"]
                 if href.startswith("http://"):
-                    mixed_content = True
                     vulnerabilities.append(
                         {
                             "type": "Mixed Content",
@@ -192,7 +188,7 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
                         }
                     )
 
-        # Check for insecure form actions (forms submitting over HTTP)
+        # Check for insecure form actions
         if parsed_url.scheme == "https":
             for form in forms:
                 action = form.get("action")
@@ -209,35 +205,33 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
                             }
                         )
 
-        # Check for inline JavaScript or CSS that could be exploited for XSS
-        # Detecting inline event handlers and <script> tags without src
+        # Inline JavaScript
         inline_scripts = soup.find_all("script", src=False)
-        if inline_scripts:
-            for script in inline_scripts:
-                if script.string and script.string.strip():
-                    vulnerabilities.append(
-                        {
-                            "type": "Inline JavaScript",
-                            "severity": "Medium",
-                            "description": "Inline JavaScript detected, which can be exploited for XSS",
-                            "location": str(script)[:200],
-                        }
-                    )
+        for script in inline_scripts:
+            if script.string and script.string.strip():
+                vulnerabilities.append(
+                    {
+                        "type": "Inline JavaScript",
+                        "severity": "Medium",
+                        "description": "Inline JavaScript detected, which can be exploited for XSS",
+                        "location": str(script)[:200],
+                    }
+                )
 
+        # Inline CSS
         inline_styles = soup.find_all("style")
-        if inline_styles:
-            for style in inline_styles:
-                if style.string and style.string.strip():
-                    vulnerabilities.append(
-                        {
-                            "type": "Inline CSS",
-                            "severity": "Low",
-                            "description": "Inline CSS detected, which can be exploited for certain attacks",
-                            "location": str(style)[:200],
-                        }
-                    )
+        for style in inline_styles:
+            if style.string and style.string.strip():
+                vulnerabilities.append(
+                    {
+                        "type": "Inline CSS",
+                        "severity": "Low",
+                        "description": "Inline CSS detected, which can be exploited for certain attacks",
+                        "location": str(style)[:200],
+                    }
+                )
 
-        # Check for deprecated or risky HTML elements/attributes
+        # Deprecated HTML elements
         deprecated_elements = ["marquee", "blink", "font"]
         for elem in deprecated_elements:
             found = soup.find_all(elem)
@@ -251,8 +245,7 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
                     }
                 )
 
-        # Check for outdated libraries with known vulnerabilities
-        # This is a basic check; for comprehensive analysis, integrate with a vulnerability database
+        # Outdated libraries check
         script_tags = soup.find_all("script", src=True)
         library_patterns = {
             "jquery": r"jquery[-\.]([\d]+)\.([\d]+)\.([\d]+)",
@@ -261,7 +254,6 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
             "react": r"react[-\.]([\d]+)\.([\d]+)\.([\d]+)",
             "vue": r"vue[-\.]([\d]+)\.([\d]+)\.([\d]+)",
         }
-        # Example of known vulnerable versions (for demonstration purposes)
         vulnerable_versions = {
             "jquery": lambda v: v[0] < 3,
             "bootstrap": lambda v: v[0] < 5,
@@ -286,13 +278,9 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
                             }
                         )
 
-        ####
-
-        # Enhanced Form Analysis
-
-        forms = soup.find_all("form")
+        # Enhanced form analysis
         for form in forms:
-            # CSRF Protection Check
+            # CSRF
             if not form.find("input", {"name": ["csrf_token", "_token", "_csrf"]}):
                 vulnerabilities.append(
                     {
@@ -317,7 +305,7 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
                     }
                 )
 
-            # Autocomplete Analysis
+            # Autocomplete in password fields
             password_fields = form.find_all("input", {"type": "password"})
             for field in password_fields:
                 if not field.get("autocomplete") == "off":
@@ -331,7 +319,7 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
                         }
                     )
 
-            # File Upload Analysis
+            # File upload analysis
             file_inputs = form.find_all("input", {"type": "file"})
             for file_input in file_inputs:
                 if not file_input.get("accept"):
@@ -346,7 +334,6 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
                     )
 
         # Enhanced Input Field Analysis
-        inputs = soup.find_all(["input", "textarea"])
         for input_field in inputs:
             input_type = input_field.get("type", "text")
 
@@ -354,15 +341,12 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
             if input_type not in ["hidden", "submit", "button", "checkbox", "radio"]:
                 validation_issues = []
 
-                # Check for length restrictions
                 if not input_field.get("maxlength"):
                     validation_issues.append("no maximum length restriction")
 
-                # Check for pattern validation
                 if not input_field.get("pattern"):
                     validation_issues.append("no pattern validation")
 
-                # Check for required fields without validation
                 if input_field.get("required") and not validation_issues:
                     validation_issues.append("required field without proper validation")
 
@@ -411,7 +395,6 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
                 )
 
         # Enhanced Content Security Analysis
-        meta_tags = soup.find_all("meta")
         csp_meta = soup.find("meta", {"http-equiv": "Content-Security-Policy"})
         if not csp_meta and "content-security-policy" not in headers:
             vulnerabilities.append(
@@ -514,21 +497,16 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
         return list(paths)
 
     async def process_single_target(self, target: str) -> HTMLScanResult:
-        """Process a single target:port combination"""
+        """Process a single target"""
         start_time = datetime.now(timezone.utc)
 
         def format_url(target: str) -> str:
-            """Format strings like `example.com` to `https://example.com` or `example.com:80` to `http://example.com:80` as urls"""
-            # check if target has a port then add the protocol based on the port
-            # use python 3 built in url functions to parse the url
+            """Format target into a proper URL"""
             parsed = urlparse(target)
-
-            # If no scheme specified, check for port to determine protocol
             if not parsed.scheme:
                 # Split potential host:port
                 parts = parsed.path.split(":")
                 if len(parts) > 1:
-                    # Has port specified
                     try:
                         port = int(parts[1])
                         if port == 443:
@@ -538,21 +516,14 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
                         host = parts[0]
                         return f"{scheme}://{host}:{port}"
                     except ValueError:
-                        # Invalid port, use default https
                         return f"https://{target}"
                 else:
-                    # No port specified, use https by default
                     return f"https://{target}"
-
-            # Already has scheme, return as-is
             return target
 
         target = format_url(target)
         try:
-            # Fetch HTML content and headers
             html_content, headers = await self.fetch_html(target)
-
-            # Analyze vulnerabilities and extract paths
             vulnerabilities, paths = self.analyze_vulnerabilities(
                 html_content, headers, target
             )
@@ -601,52 +572,49 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
 
     async def process_targets(self, targets: List[str]) -> List[HTMLScanResult]:
         """Process multiple targets concurrently"""
-        tasks = []
-        for target_info in targets:
-            task = self.process_single_target(target_info)
-            tasks.append(task)
-
+        tasks = [self.process_single_target(t) for t in targets]
         return await asyncio.gather(*tasks)
 
-    def process_task(self, task: Dict) -> Dict:
-        """Process a task with targets"""
-        if not isinstance(task, dict) or "_id" not in task:
-            self.task_logger.error("Invalid task format")
+    async def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        self.task_logger.info("**************** HTML ANALYZER AGENT ****************")
+        self.task_logger.info(f"{task}\n\n")
+
+        # Extract top-level fields directly
+        task_id = task.get("task_id")
+        step_id = task.get("step_id")
+        description = task.get("description")
+
+        if not task_id or not step_id:
+            self.task_logger.error("Invalid task format: missing task_id or step_id")
             return self._create_task_result(
-                task.get("_id"), error="Invalid task format"
+                task_id, step_id, error="Invalid task format"
             )
+
+        # Get targets from the task directly, if present
+        targets = task.get("targets", [])
+
+        if not targets:
+            self.task_logger.error("No targets provided in the task")
+            return self._create_task_result(
+                task_id=task_id, step_id=step_id, error="No targets available"
+            )
+
+        self.task_logger.info(f"Processing targets: {targets}")
 
         try:
-            # Extract targets from task considering that targets need to be in the currently executing step
-            current_step = next(
-                (
-                    step
-                    for step in task["steps"]
-                    if step["state"] == TaskState.IN_PROGRESS.value
-                ),
-                None,
+            # Process all targets asynchronously
+            results = await self.process_targets(targets)
+
+            # Serialize results
+            aggregated_result = "\n".join(
+                [serialize_task_to_string(result.model_dump()) for result in results]
             )
-            if not current_step or not current_step.get("targets"):
-                logger.error("No targets found in current step")
 
-                return self._create_task_result(
-                    task.get("_id"), error="No targets available"
-                )
-
-            targets = current_step["targets"]
-            logger.info(f"Processing targets: {targets}")
-
-            # Process all targets
-            results = asyncio.run(self.process_targets(targets))
-            # Create aggregated result
-            aggregated_result = self._create_task_result(
-                task.get("_id"),
-                result="\n".join(
-                    [
-                        serialize_task_to_string(result.model_dump())
-                        for result in results
-                    ]
-                ),
+            return self._create_task_result(
+                task_id=task_id,
+                step_id=step_id,
+                step_description=description,
+                result=aggregated_result,
                 metadata={
                     "timestamp": get_iso_timestamp(),
                     "total_targets": len(targets),
@@ -655,8 +623,8 @@ class WrapperHTMLAnalyzerAgent(WrapperAgent):
                 },
             )
 
-            return aggregated_result
-
         except Exception as e:
-            logger.error(f"Error processing task: {str(e)}")
-            return self._create_task_result(task.get("_id"), error=str(e))
+            self.task_logger.error(f"Error processing task: {str(e)}")
+            return self._create_task_result(
+                task_id=task_id, step_id=step_id, error=str(e)
+            )

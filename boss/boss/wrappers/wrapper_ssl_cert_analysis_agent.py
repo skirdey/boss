@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -22,11 +23,11 @@ class GetSSLCertificateCommand(BaseModel):
     """Model for get SSL certificate command parameters"""
 
     target: str = Field(
-        description="Extract hostname for server_hostname parameter in get_ssl_certificate function that uses ssl python library to download the certificate from the target host."
+        description="Extract hostname for server_hostname parameter in get_ssl_certificate function."
     )
 
 
-class WrapperGetSSLCertificateAgent(WrapperAgent):
+class WrapperGetSSLCertificateAnalysisAgent(WrapperAgent):
     def __init__(
         self,
         agent_id="agent_network_get_ssl_certificate",
@@ -35,13 +36,13 @@ class WrapperGetSSLCertificateAgent(WrapperAgent):
         super().__init__(agent_id, kafka_bootstrap_servers)
         self.setup_task_logger()
 
-    def _call_openai_api(self, prompt: str) -> GetSSLCertificateCommand:
-        """Call OpenAI API with structured output parsing for get SSL certificate command"""
+    async def _call_openai_api(self, prompt: str) -> GetSSLCertificateCommand:
+        """Asynchronously call OpenAI API with structured output parsing for get SSL certificate command"""
         if not os.getenv("OPENAI_API_KEY"):
             raise ValueError("OPENAI_API_KEY environment variable is not set")
 
         try:
-            completion = self.openai_client.beta.chat.completions.parse(
+            completion = await self.openai_client.beta.chat.completions.parse(
                 model="gpt-4o-mini",
                 messages=[
                     {
@@ -64,21 +65,22 @@ class WrapperGetSSLCertificateAgent(WrapperAgent):
             logger.error(f"OpenAI API request failed: {str(e)}")
             raise
 
-    def execute_get_ssl_certificate(
-        self,
-        target: str,
-        port: int = 443,
+    async def execute_get_ssl_certificate(
+        self, target: str, port: int = 443
     ) -> Dict[str, Any]:
-        """Execute get_ssl_certificate function with given parameters"""
+        """Asynchronously execute get_ssl_certificate function with given parameters"""
         try:
             self.task_logger.info(
                 f"Executing get_ssl_certificate with target={target}, port={port}"
             )
-
             start_time = datetime.now(timezone.utc)
-            cert_info = get_ssl_certificate(host=target, port=port)
-            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
+            # Run synchronous I/O in a separate thread
+            cert_info = await asyncio.to_thread(
+                get_ssl_certificate, host=target, port=port
+            )
+
+            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             self.task_logger.info(
                 f"SSL certificate retrieval completed in {execution_time:.2f} seconds."
             )
@@ -104,73 +106,66 @@ class WrapperGetSSLCertificateAgent(WrapperAgent):
         except ValueError:
             pass
 
-        # Validate hostname (simpler regex for hostname validation)
+        # Validate hostname
         hostname_regex = r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
-        if re.match(hostname_regex, target):
-            return True
+        return bool(re.match(hostname_regex, target))
 
-        return False
+    async def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        """Asynchronously process the SSL certificate retrieval task."""
+        self.task_logger.info("**************** SSL CERTIFICATE AGENT ****************")
+        self.task_logger.info(f"{task}\n\n")
 
-    def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
-        if not isinstance(task, dict) or "_id" not in task:
+        # Validate required fields
+        if not isinstance(task, dict) or "task_id" not in task or "step_id" not in task:
             logger.error("Invalid task format")
-            return {"success": False, "note": "Invalid task format"}
+            return self._create_task_result(
+                task_id=task.get("task_id", "unknown"),
+                step_id=task.get("step_id", "unknown"),
+                error="Invalid task format",
+            )
+
+        task_id = task.get("task_id")
+        step_id = task.get("step_id")
+        description = task.get("description", "")
 
         try:
-            task_id = task.get("_id")
-            self.task_logger.info(f"Processing task with ID: {task_id}")
-
-            # Extract current step index and steps
-            current_step_index = task.get("current_step_index")
-            steps = task.get("steps", [])
-            if current_step_index is None or current_step_index >= len(steps):
-                logger.error("Invalid current_step_index")
-                return {"task_id": task_id, "error": "Invalid current_step_index"}
-
-            current_step = steps[current_step_index]
-            step_description = current_step.get("step_description", "")
-
-            task_prompt = f"Current step:\n{step_description}"
-
-            # Parse the command using structured output
-            parsed_command = self._call_openai_api(task_prompt)
-
+            # Parse the command using the task's description
+            parsed_command = await self._call_openai_api(description)
             logger.info(f"Using command parameters: target={parsed_command.target}")
 
             # Validate the target
             if not self.is_valid_target(parsed_command.target):
-                return {
-                    "task_id": str(task["_id"]),
-                    "result": f"Invalid target: {parsed_command.target}",
-                    "note": "Validation failed",
-                }
+                return self._create_task_result(
+                    task_id=task_id,
+                    step_id=step_id,
+                    error=f"Invalid target: {parsed_command.target}",
+                )
 
             # Execute the SSL certificate retrieval
-            cert_result = self.execute_get_ssl_certificate(target=parsed_command.target)
+            cert_result = await self.execute_get_ssl_certificate(
+                target=parsed_command.target
+            )
 
-            # Prepare the result to send back to BOSS
-            result = {
-                "task_id": str(task["_id"]),
-                "agent_id": self.agent_id,
-                "result": json.dumps(cert_result),
-                "metadata": {"target": parsed_command.target},
-            }
-
-            return result
+            # Prepare the result
+            return self._create_task_result(
+                task_id=task_id,
+                step_id=step_id,
+                step_description=description,
+                result=json.dumps(cert_result),
+                metadata={"target": parsed_command.target},
+            )
 
         except ValidationError as ve:
             logger.error(f"Validation error: {ve}")
-            return {
-                "task_id": str(task.get("_id", "unknown")),
-                "agent_id": self.agent_id,
-                "error": f"Validation error: {ve}",
-                "note": "Invalid command parameters",
-            }
+            return self._create_task_result(
+                task_id=task_id,
+                step_id=step_id,
+                error=f"Validation error: {ve}",
+            )
         except Exception as e:
             logger.error(f"Error processing task: {str(e)}")
-            return {
-                "task_id": str(task.get("_id", "unknown")),
-                "agent_id": self.agent_id,
-                "error": str(e),
-                "note": "Exception occurred during task execution",
-            }
+            return self._create_task_result(
+                task_id=task_id,
+                step_id=step_id,
+                error=str(e),
+            )

@@ -131,8 +131,7 @@ class WrapperDigAgent(WrapperAgent):
                 return self._create_task_result(
                     task_id=task_id,
                     step_id=step_id,
-                    result=f"Invalid target: {parsed_command.target}",
-                    note="Validation failed",
+                    error=f"Invalid target: {parsed_command.target}",
                 )
 
             # Execute the DIG lookup
@@ -149,23 +148,19 @@ class WrapperDigAgent(WrapperAgent):
                 },
             )
 
-            logger.info(f"DigWrapperAgent result: {result}")
-
             return result
 
         except ValidationError as ve:
-            logger.error(f"Validation error: {ve}")
+            self.task_logger.error(f"Validation error: {ve}")
             return self._create_task_result(
                 task_id=task.get("task_id"),
                 step_id=task.get("step_id"),
                 error=f"Validation error: {ve}",
-                note="Invalid command parameters",
             )
         except Exception as e:
-            logger.error(f"Error processing task: {str(e)}")
+            self.task_logger.error(f"Error processing task: {str(e)}")
             return self._create_task_result(
                 task_id=task.get("task_id"),
                 step_id=task.get("step_id"),
                 error=str(e),
-                note="Exception occurred during task execution",
             )
