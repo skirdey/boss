@@ -45,6 +45,9 @@ class WrapperAgent(ABC):
             group_id="boss_group",
             enable_auto_commit=True,
             auto_commit_interval_ms=1000,
+            max_poll_interval_ms=900000,  # 15 minutes
+            session_timeout_ms=120000,  # 2 minutes
+            heartbeat_interval_ms=15000,  # 15 seconds
         )
 
         self.producer = AIOKafkaProducer(
@@ -88,6 +91,7 @@ class WrapperAgent(ABC):
     async def start(self):
         """Start the agent with proper logging and signal handling."""
         self.running = True
+
         try:
             await self.consumer.start()
             self.task_logger.info("Kafka consumer started successfully.")

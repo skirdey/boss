@@ -119,6 +119,10 @@ class WrapperDigAgent(WrapperAgent):
 
             task_prompt = f"Current step:\n{step_description}"
 
+            targets = task.get("targets", [])
+            if targets:
+                task_prompt += f"\n\nTargets: {targets} \n\n"
+
             # Parse the command using structured output
             parsed_command = await self._call_openai_api(task_prompt)
 
