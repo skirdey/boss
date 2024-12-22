@@ -52,16 +52,16 @@ class WebSocketTestCommand(BaseModel):
     )
 
 
-class WrapperWebSocketTestAgent(WrapperAgent):
+class WrapperWebSocketAgent(WrapperAgent):
     def __init__(
         self,
         agent_id="agent_websocket_tester",
         kafka_bootstrap_servers="localhost:9092",
     ):
         super().__init__(agent_id, kafka_bootstrap_servers)
-        self.setup_logging()
+        self.setup_task_logger()
 
-    def setup_logging(self):
+    def setup_task_logger(self):
         """Setup task-specific logging"""
         self.task_logger = logging.getLogger(f"{self.agent_id}_task")
         handler = logging.StreamHandler()
@@ -74,7 +74,7 @@ class WrapperWebSocketTestAgent(WrapperAgent):
         self.task_logger.addHandler(handler)
         self.task_logger.setLevel(logging.INFO)
 
-    def _call_openai_api(self, prompt: str) -> WebSocketTestCommand:
+    async def _call_openai_api(self, prompt: str) -> WebSocketTestCommand:
         """Call OpenAI API with structured output parsing for WebSocket test generation"""
         if not os.getenv("OPENAI_API_KEY"):
             raise ValueError("OPENAI_API_KEY environment variable is not set")
@@ -86,7 +86,7 @@ class WrapperWebSocketTestAgent(WrapperAgent):
             2. Determine message sequence and timing
             3. Define authentication requirements
             4. Generate appropriate test scenario
-            
+
             Common test scenarios:
             - normal: Standard WebSocket connection and message exchange
             - connection_drop: Test connection drop handling
@@ -98,7 +98,7 @@ class WrapperWebSocketTestAgent(WrapperAgent):
             - rate_limit: Test rate limiting behavior
             """
 
-            completion = self.openai_client.beta.chat.completions.parse(
+            completion = await self.openai_client.beta.chat.completions.parse(
                 model="gpt-4o-mini",
                 messages=[
                     {
@@ -270,72 +270,58 @@ class WrapperWebSocketTestAgent(WrapperAgent):
         except (json.JSONDecodeError, TypeError, KeyError):
             return False
 
-    async def process_task_async(self, task: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """Process task asynchronously"""
-        if not isinstance(task, dict) or "_id" not in task:
+        self.task_logger.info("**************** WEBSOCKET AGENT ****************")
+
+        if not isinstance(task, dict) or "task_id" not in task or "step_id" not in task:
             logger.error("Invalid task format")
-            return {
-                "task_id": str(task["_id"]),
-                "agent_id": self.agent_id,
-                "result": "None",
-                "error": "Invalid task format",
-            }
+            return self._create_task_result(
+                task.get("task_id"), task.get("step_id"), error="Invalid task format"
+            )
 
         try:
-            task_id = task.get("_id")
-            self.task_logger.info(f"Processing task with ID: {task_id}")
+            task_id = task.get("task_id")
+            step_id = task.get("step_id")
+            self.task_logger.info(
+                f"Processing task with ID: {task_id} and step ID: {step_id}"
+            )
 
-            current_step_index = task.get("current_step_index")
-            steps = task.get("steps", [])
-            if current_step_index is None or current_step_index >= len(steps):
-                logger.error("Invalid current_step_index")
-                return {
-                    "task_id": str(task_id),
-                    "agent_id": self.agent_id,
-                    "result": "None",
-                    "error": "Invalid current_step_index",
-                }
-
-            current_step = steps[current_step_index]
-            step_description = current_step.get("step_description", "")
+            step_description = task.get("description", "")
+            task_prompt = f"Current step:\n{step_description}"
 
             # Generate test parameters using LLM
-            parsed_command = self._call_openai_api(step_description)
+            parsed_command = await self._call_openai_api(task_prompt)
 
             # Execute the WebSocket test
             test_result = await self.execute_websocket_test(parsed_command)
 
             # Prepare the result
-            result = {
-                "task_id": str(task_id),
-                "agent_id": self.agent_id,
-                "result": serialize_task_to_string(test_result),
-                "metadata": {
+            result = self._create_task_result(
+                task_id=task_id,
+                step_id=step_id,
+                result=serialize_task_to_string(test_result),
+                metadata={
                     "url": parsed_command.url,
                     "test_scenario": parsed_command.test_scenario,
                     "auth_type": parsed_command.auth_type,
                 },
-            }
+                step_description=step_description,
+            )
 
             return result
 
         except ValidationError as ve:
             logger.error(f"Validation error: {ve}")
-            return {
-                "task_id": str(task.get("_id", "unknown")),
-                "agent_id": self.agent_id,
-                "result": "None",
-                "error": f"Validation error: {ve}",
-            }
+            return self._create_task_result(
+                task_id=task.get("task_id"),
+                step_id=task.get("step_id"),
+                error=f"Validation error: {ve}",
+            )
         except Exception as e:
             logger.error(f"Error processing task: {str(e)}")
-            return {
-                "task_id": str(task.get("_id", "unknown")),
-                "agent_id": self.agent_id,
-                "result": "None",
-                "error": f"Error processing task: {str(e)}",
-            }
-
-    def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
-        """Synchronous wrapper for process_task_async"""
-        return asyncio.run(self.process_task_async(task))
+            return self._create_task_result(
+                task_id=task.get("task_id"),
+                step_id=task.get("step_id"),
+                error=str(e),
+            )

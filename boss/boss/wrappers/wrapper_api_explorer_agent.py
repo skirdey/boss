@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 from typing import Any, Dict, List, Optional
@@ -21,7 +20,9 @@ logger.propagate = False
 class RestExplorerCommand(BaseModel):
     """Model for REST API explorer command parameters"""
 
-    target: str = Field(description="FQDN or IP address to scan for API endpoints.")
+    target: str = Field(
+        description="FQDN or IP address to scan for API endpoints based on targets or step description"
+    )
     ports: Optional[List[int]] = Field(
         default=None,
         description="List of ports to scan for API endpoints. If not provided, default ports will be used.",
@@ -49,9 +50,9 @@ class WrapperAPIExplorerAgent(WrapperAgent):
                     {
                         "role": "system",
                         "content": (
-                            "Extract the FQDN or IP address and ports from the provided text to be used "
+                            "Extract the FQDN or IP address and ports from the provided text to be used based on targets or step description only,"
                             "as a target for scanning REST API endpoints. Remove http or https or www from the target."
-                            "Use valid targets based on the provided text. Do not use example.com or any other generic domain names."
+                            "Use valid targets based on the provided text. Do not come up with your own targets that not mentioned in the provided text."
                         ),
                     },
                     {"role": "user", "content": prompt},
@@ -77,7 +78,7 @@ class WrapperAPIExplorerAgent(WrapperAgent):
             )
 
             # Run the synchronous scan in a thread pool
-            report = await asyncio.to_thread(scan_api, target, ports)
+            report = await scan_api(target, ports)
 
             self.task_logger.info("API scan completed.")
             return report
@@ -102,6 +103,11 @@ class WrapperAPIExplorerAgent(WrapperAgent):
         task_id = task.get("task_id")
         step_id = task.get("step_id")
         description = task.get("description", "")
+
+        targets = task.get("targets", [])
+
+        if targets:
+            description += f"\n\nTargets: {targets} \n\n"
 
         try:
             # Parse the command using the task's description

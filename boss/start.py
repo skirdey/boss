@@ -14,6 +14,9 @@ from boss.wrappers.wrapper_ping_agent import WrapperPing
 from boss.wrappers.wrapper_ssl_cert_analysis_agent import (
     WrapperGetSSLCertificateAnalysisAgent,
 )
+from boss.wrappers.wrapper_wapiti_agent import WrapperWapitiCliAgent
+from boss.wrappers.wrapper_websocket_agent import WrapperWebSocketAgent
+from boss.wrappers.wrapper_xss_agent import WrapperXssAgent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -90,6 +93,9 @@ async def main():
         WrapperHTMLAnalyzerAgent,
         WrapperGetSSLCertificateAnalysisAgent,
         WrapperAPIExplorerAgent,
+        WrapperXssAgent,
+        WrapperWebSocketAgent,
+        WrapperWapitiCliAgent,
         # Add other components as needed
     ]
 

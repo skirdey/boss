@@ -76,12 +76,37 @@ db.agents.insertMany([
         "priority": 67
     },
 
+    // works as expected
     {
         "agent_id": "agent_api_explorer",
         "capabilities": ["High priority agent. comprehensive web security tool that performs tasks such as port scanning, SSL certificate analysis, subdomain enumeration, directory and file discovery, detection of web technologies, and verification of security headers. Additionally, it identifies potential vulnerabilities like CORS misconfigurations, CSRF weaknesses, injection points, and sensitive file disclosures, compiling all findings into a structured JSON report."],
         "status": "active",
         "priority": 100
     },
+
+    // works as expected
+    {
+        "agent_id": "agent_xss_scanner",
+        "capabilities": ["Specialized agent for detecting Cross-Site Scripting (XSS) vulnerabilities. It identifies potential reflected XSS issues by injecting payloads into web page parameters and analyzing the responses for reflection. Can utilize known payloads and generate new ones based on page content. Optionally supports headless browser execution for advanced detection."],
+        "status": "active",
+        "priority": 100
+    },
+
+    // works as expected
+    {
+        "agent_id": "agent_websocket_tester",
+        "capabilities": ["Agent for testing WebSocket endpoints. It connects to a WebSocket server, sends a sequence of messages with optional delays, handles different test scenarios (e.g., normal operation, connection drops, malformed messages), and validates received responses against expected patterns. Supports various authentication methods and allows configuration of connection timeouts and headers."],
+        "status": "active",
+        "priority": 100
+    },
+
+    // works as expected
+    {
+        "agent_id": "agent_wapiti_cli_scanner",
+        "capabilities": ["Agent for performing web application vulnerability scans using the Wapiti command-line tool. It executes Wapiti with parameters derived from a task description, captures the scan report (preferably in JSON format), and returns the results. Supports configuring scan scope, modules, authentication, and other options. Effectively acts as a wrapper around the Wapiti CLI, making it accessible through natural language instructions."],
+        "status": "active",
+        "priority": 90
+    }
     // {
     //     "agent_id": "agent_network_scan_ports",
     //     "capabilities": [

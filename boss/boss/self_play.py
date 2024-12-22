@@ -105,7 +105,11 @@ class TreeNode:
         )
 
     def __str__(self):
-        return f"TreeNode(step_id={self.step_id}, step_description={self.step_description}) with {len(self.children)} children \n {self.exploration_history} \n {self.llm_evaluation} \n {self.untried_steps}"
+        return (
+            f"TreeNode(step_id={self.step_id}, step_description={self.step_description}) "
+            f"with {len(self.children)} children \n {self.exploration_history} \n "
+            f"{self.llm_evaluation} \n {self.untried_steps}"
+        )
 
     def add_child(self, child_node: "TreeNode"):
         """Add a child node to the current node."""
@@ -151,12 +155,10 @@ class SelfPlayMCTS:
         self.result_queue = result_queue
         self.selfplay_response_queue = selfplay_response_queue
 
-        self.max_experiments: int = 1000  # Number of MCTS iterations per task
-        self.max_children_per_node: int = 50  # Max number of children per node
+        self.max_experiments: int = 3  # Number of MCTS iterations per task
+        self.max_children_per_node: int = 3  # Max number of children per node
 
-        self.pending_simulations: Dict[
-            str, TreeNode
-        ] = {}  # New: Track pending simulations
+        self.pending_simulations: Dict[str, TreeNode] = {}  # Track pending simulations
 
         self.mongo_client = motor.motor_asyncio.AsyncIOMotorClient(mongo_uri)
         self.db = self.mongo_client["task_db"]
@@ -168,11 +170,8 @@ class SelfPlayMCTS:
         """
         Retrieves the path of step descriptions from the root to the given node.
 
-        Args:
-            node (TreeNode): The node from which to start the path retrieval.
-
         Returns:
-            List[str]: A list of step descriptions from root to the node.
+            A list of step descriptions from root to the node.
         """
         path = []
         current = node
@@ -182,6 +181,28 @@ class SelfPlayMCTS:
             current = current.parent
         path.reverse()  # To get the order from root to the node
         return path
+
+    def collect_path_context(self, node: TreeNode) -> str:
+        """
+        Collects both the step descriptions and relevant LLM evaluations
+        from the root to the current node, so the next steps can incorporate
+        outcomes of previous steps.
+        """
+        path_stack = []
+        current = node
+        while current.parent is not None:
+            if current.step_description:
+                # Include step description and any LLM evaluation snippet
+                eval_str = (
+                    f"(Eval: success={current.llm_evaluation.get('success', False)}, "
+                    f"score={current.llm_evaluation.get('confidence_score', 0.0)})"
+                    if isinstance(current.llm_evaluation, dict)
+                    else ""
+                )
+                path_stack.append(f"Step: {current.step_description} {eval_str}")
+            current = current.parent
+        path_stack.reverse()
+        return "\n".join(path_stack)
 
     async def start(self):
         self.capabilities_list = "\n".join(
@@ -225,26 +246,8 @@ class SelfPlayMCTS:
 
     async def from_boss_results(self):
         """
-
-        success: bool = Field(description="Whether the task was completed successfully")
-
-        confidence_score: float = Field(
-            ..., description="Confidence score as a float between 0.0 and 1.0"
-        )
-
-        reasoning: str = Field(
-            description="Detailed explanation of the evaluation decision"
-        )
-        additional_steps_needed: List[str] = Field(
-            default_factory=list,
-            description="List of additional steps required if task is incomplete",
-        )
-        explanation: str = Field(..., description="Explanation of the evaluation decision")
-        critique: str = Field(
-            ...,
-            description="Critique of the step completion considering the expected outcome",
-        )
-
+        Continuously listens for results of executed steps from the result_queue,
+        evaluates the outcome, and backpropagates the reward in the MCTS tree.
         """
         while True:
             result = await self.result_queue.get()
@@ -262,7 +265,6 @@ class SelfPlayMCTS:
                 await self._backpropagate(node, reward)
                 # Remove from pending simulations
                 simulation_key = f"{task_id}_{step_id}"
-
                 self.pending_simulations.pop(simulation_key, None)
                 # Update the task tree structure
                 task = self.get_task_by_id(task_id)
@@ -324,11 +326,13 @@ class SelfPlayMCTS:
             )
 
     def get_task_by_id(self, task_id: str) -> Optional[Dict]:
-        # Implement retrieval of the task from the database or in-memory storage
-        # For example:
         return self.task_store.get(task_id)
 
     async def from_boss_tasks(self):
+        """
+        Continuously listens for new tasks. For each incoming task, run MCTS
+        to select the next step and best agent, then dispatch it for execution.
+        """
         while True:
             task = await self.task_queue.get()
 
@@ -393,22 +397,24 @@ class SelfPlayMCTS:
             )
             self.root_nodes[task_id] = root
 
-        # Initialize untried steps
-        initial_steps_response = await self._generate_initial_steps(
-            task, self.capabilities_list
-        )
-        if not initial_steps_response:
-            logger.error("Failed to generate initial steps.")
-            return
+        # Initialize untried steps only if the root is brand new (has no untried steps yet)
+        if not root.untried_steps and not root.children:
+            initial_steps_response = await self._generate_initial_steps(
+                task, self.capabilities_list
+            )
+            if not initial_steps_response:
+                logger.error("Failed to generate initial steps.")
+                return
 
-        # Limit the number of untried steps based on max_children_per_node
-        root.untried_steps = initial_steps_response.estimated_steps[
-            : self.max_children_per_node
-        ]
-
-        logger.info(
-            f"Initialized root node with {len(root.untried_steps)} untried steps"
-        )
+            # -- Prevent duplicates from the start: (though root has no path, just in case)
+            unique_steps = self.filter_out_duplicate_steps(
+                initial_steps_response.estimated_steps, set()
+            )
+            # Limit the number of untried steps
+            root.untried_steps = unique_steps[: self.max_children_per_node]
+            logger.info(
+                f"Initialized root node with {len(root.untried_steps)} untried steps"
+            )
 
         # Run MCTS iterations
         for i in range(self.max_experiments):
@@ -436,14 +442,14 @@ class SelfPlayMCTS:
                 await self._simulate(node, task)
                 node.is_simulation_sent = True  # Mark as simulation sent
 
-            # Since we cannot get a reward immediately, we cannot backpropagate here
+            # We do NOT backpropagate here because the step execution (and thus reward)
+            # will come later from from_boss_results.
 
         # Update the task tree structure
         await self.update_task_tree_structure(task)
 
     async def _simulate(self, node: TreeNode, task: Dict):
         """Send the task step and agent to BOSS for execution"""
-
         logger.info(f"Simulating node {node} with state {node.step_description}")
 
         if node.step_description is None or node.agent_id is None:
@@ -516,15 +522,18 @@ class SelfPlayMCTS:
                 return None
 
             # Generate steps using the LLM
-            steps = await self._generate_steps_from_description(
-                task_description, self.capabilities_list, []
+            # Pass empty path context for the root
+            steps_response = await self._generate_steps_from_description(
+                description=task_description,
+                capabilities_list=self.capabilities_list,
+                path_context="",
             )
 
-            if not steps:
+            if not steps_response or not steps_response.estimated_steps:
                 logger.error(f"No initial steps generated for task {task['_id']}.")
                 return None
 
-            return steps
+            return steps_response
 
         except Exception as e:
             logger.error(
@@ -533,33 +542,20 @@ class SelfPlayMCTS:
             return None
 
     async def _generate_steps_from_description(
-        self, description: str, capabilities_list: str, path: List[str]
+        self, description: str, capabilities_list: str, path_context: str
     ) -> Optional[StepGenerationResponse]:
         """
-        Generate steps from task description and path using LLM.
-
-        Args:
-            description (str): The current task description.
-            capabilities_list (str): List of agent capabilities.
-            path (List[str]): List of step descriptions from root to current node.
-
-        Returns:
-            Optional[StepGenerationResponse]: The generated steps.
+        Generate steps from task description, existing path context, and agent capabilities.
         """
         try:
             if not description:
                 logger.error("Empty task description provided for step generation.")
                 return None
 
-            # Format the path into a readable format
-            path_text = "\n".join(
-                [f"Step {i+1}: {step}" for i, step in enumerate(path)]
-            )
-
             messages = BossPrompts.format_step_generation(
                 task_description=description,
                 capabilities_list=capabilities_list,
-                path_history=path_text,  # Pass the path history to the prompt
+                path_history=path_context,
             )
 
             logger.debug(f"Generated messages for step generation: {messages}")
@@ -592,8 +588,10 @@ class SelfPlayMCTS:
                 # Try to expand
                 expanded_node = self._expand(current_node)
                 if expanded_node != current_node:  # Successful expansion
-                    # Wait for untried steps to be initialized
-                    while not expanded_node.untried_steps:
+                    # Wait for untried steps to be initialized (child might do it asynchronously)
+                    while (
+                        not expanded_node.untried_steps and not expanded_node.is_leaf()
+                    ):
                         await asyncio.sleep(0.1)
                     logger.info(
                         f"Successfully expanded node with step: {expanded_node.step_description}"
@@ -613,7 +611,7 @@ class SelfPlayMCTS:
         return current_node
 
     def _expand(self, node: TreeNode) -> TreeNode:
-        """Expand the node by trying an untried step"""
+        """Expand the node by trying an untried step."""
         if not node.untried_steps:
             logger.warning(f"No untried steps available for node {node.task_id}")
             return node  # Return same node to indicate expansion failure
@@ -625,37 +623,51 @@ class SelfPlayMCTS:
             )
             return node  # Do not expand further
 
-        step = node.untried_steps.pop()
-        step_description = step.step_description
-        logger.info(f"Attempting to expand with step: {step_description}")
+        step_found = None
+        while node.untried_steps and not step_found:
+            step = node.untried_steps.pop()
+            step_description = step.step_description
+            if not step_description:
+                logger.error("Invalid step description encountered; skipping.")
+                continue
 
-        if not step_description:
-            logger.error("Invalid step description")
-            return node  # Return same node to indicate expansion failure
+            # 1) Ensure no duplicate step in the *current path*
+            path_descriptions = set(self.get_path_to_node(node))
+            if step_description in path_descriptions:
+                logger.info(
+                    f"Skipping duplicate step '{step_description}' in the current path."
+                )
+                continue
 
-        # Create new child node with the step description
+            # If it's truly new, use it
+            step_found = step
+
+        if not step_found:
+            logger.info("No suitable new step found to expand.")
+            return node  # No new step was found
+
+        # Create new child node
         child_node = TreeNode(
             task_id=node.task_id,
             step_id=str(ObjectId()),
-            step_description=step_description,
-            targets=step.targets,  # Assign targets here
+            step_description=step_found.step_description,
+            targets=step_found.targets,
             parent=node,
         )
-
         node.add_child(child_node)
 
-        # Initialize untried steps for the child node if needed
-        # For this example, we'll leave it empty
-        child_node.untried_steps = []
-
+        # Initialize untried steps for the child node asynchronously
         asyncio.create_task(self._initialize_child_untried_steps(child_node))
-
-        logger.info(f"Successfully created child node with step: {step_description}")
+        logger.info(
+            f"Successfully created child node with step: {child_node.step_description}"
+        )
         return child_node
 
     async def _initialize_child_untried_steps(self, child_node: TreeNode):
-        """Initialize untried steps for the child node asynchronously."""
-        # Get the task description and capabilities list
+        """
+        Initialize untried steps for the child node asynchronously,
+        taking into account the path (including evaluations) so far.
+        """
         task = self.get_task_by_id(child_node.task_id)
         if not task:
             logger.error(f"Task with id {child_node.task_id} not found.")
@@ -666,24 +678,42 @@ class SelfPlayMCTS:
             logger.error("Task description is empty.")
             return
 
-        # Get the path to the child node
-        path = self.get_path_to_node(child_node)
+        # Collect the entire path context, including evaluations
+        path_context = self.collect_path_context(child_node)
 
-        # Generate steps from the current description and path
+        # Generate steps from the current description and path context
         steps_response = await self._generate_steps_from_description(
             description=task_description,
             capabilities_list=self.capabilities_list,
-            path=path,
+            path_context=path_context,
         )
 
         if not steps_response or not steps_response.estimated_steps:
             logger.warning("No steps generated for the child node.")
             return
 
-        # Limit the number of untried steps
-        child_node.untried_steps = steps_response.estimated_steps[
-            : self.max_children_per_node
-        ]
+        # Filter out duplicates and limit the number of untried steps
+        existing_path = set(self.get_path_to_node(child_node))
+        filtered_steps = self.filter_out_duplicate_steps(
+            steps_response.estimated_steps, existing_path
+        )
+        child_node.untried_steps = filtered_steps[: self.max_children_per_node]
+
+    def filter_out_duplicate_steps(
+        self, steps: List[EstimatedNode], existing_path: set
+    ) -> List[EstimatedNode]:
+        """
+        Remove any steps whose descriptions already exist in the 'existing_path' set.
+        """
+        unique = []
+        for s in steps:
+            if s.step_description not in existing_path:
+                unique.append(s)
+            else:
+                logger.info(
+                    f"Filtering out duplicate generated step: '{s.step_description}'"
+                )
+        return unique
 
     def _uct_select(self, node: TreeNode) -> TreeNode:
         """
@@ -726,7 +756,7 @@ class SelfPlayMCTS:
     async def _select_agent_for_step(
         self, step_description: str, agent_details: List[Dict]
     ) -> Optional[str]:
-        """Select the best agent for the given step"""
+        """Select the best agent for the given step."""
         agent_details_str = "\n".join(
             [
                 f"Agent {agent['agent_id']}: {', '.join(agent.get('capabilities', []))}"
@@ -760,17 +790,18 @@ class SelfPlayMCTS:
             node = node.parent
 
     def _is_terminal(self, node: TreeNode) -> bool:
-        """Check if node represents a terminal state"""
+        """Check if node represents a terminal state."""
         # Add depth-based termination
         depth = 0
         current = node
         while current.parent is not None:
             depth += 1
             current = current.parent
-            if depth > 3:  # Safeguard against circular references
-                logger.warning("Detected possible circular reference in MCTS tree")
+            if depth > 20:  # Safeguard: large depth might indicate we should stop
+                logger.warning("Reached maximum depth limit in MCTS tree.")
                 return True
 
+        # If no untried steps and no children, it is terminal
         if not node.untried_steps and not node.children:
             return True
 

@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 
-import argparse
 import concurrent.futures
 import json
 import queue
 import re
 import socket
 import ssl
-import sys
 import threading
 import urllib.error
 import urllib.parse
@@ -829,47 +827,3 @@ class WESSyScanner:
                     "details": f"{len(self.results['file_disclosure'])} sensitive files disclosed.",
                 }
             )
-
-    # Additional methods can be added here as needed
-
-
-def parse_arguments() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="WESSyScanner - Comprehensive Web Security Scanner"
-    )
-    parser.add_argument("target", help="Target URL to scan (e.g., https://example.com)")
-    parser.add_argument(
-        "-p",
-        "--ports",
-        help="Comma-separated list of ports to scan (default: common ports)",
-        default=None,
-    )
-    parser.add_argument(
-        "-t",
-        "--threads",
-        help="Number of concurrent threads (default: 10)",
-        type=int,
-        default=10,
-    )
-    return parser.parse_args()
-
-
-def main() -> Dict:
-    args = parse_arguments()
-
-    # Parse ports
-    if args.ports:
-        try:
-            ports = [int(port.strip()) for port in args.ports.split(",")]
-        except ValueError:
-            print(
-                "[-] Invalid ports specified. Please provide a comma-separated list of integers."
-            )
-            sys.exit(1)
-    else:
-        ports = None
-
-    scanner = WESSyScanner(target=args.target, ports=ports, threads=args.threads)
-    results = scanner.scan()
-    return results
