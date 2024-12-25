@@ -1,7 +1,7 @@
+import asyncio
 import logging
 import os
 import re
-import socket
 from datetime import datetime, timezone
 from typing import Any, Dict
 
@@ -17,12 +17,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logger.propagate = False
 
-
 class WhoisLookupCommand(BaseModel):
     """Model for WHOIS lookup command parameters"""
 
     target: str = Field(description="Domain name to be used for WHOIS lookup.")
-
 
 class WrapperWhoisAgent(WrapperAgent):
     def __init__(
@@ -33,13 +31,13 @@ class WrapperWhoisAgent(WrapperAgent):
         super().__init__(agent_id, kafka_bootstrap_servers)
         self.setup_task_logger()
 
-    def _call_openai_api(self, prompt: str) -> WhoisLookupCommand:
+    async def _call_openai_api(self, prompt: str) -> WhoisLookupCommand:
         """Call OpenAI API with structured output parsing for WHOIS lookup command"""
         if not os.getenv("OPENAI_API_KEY"):
             raise ValueError("OPENAI_API_KEY environment variable is not set")
 
         try:
-            completion = self.openai_client.beta.chat.completions.parse(
+            completion = await self.openai_client.beta.chat.completions.parse(
                 model="gpt-4o-mini",
                 messages=[
                     {
@@ -62,13 +60,13 @@ class WrapperWhoisAgent(WrapperAgent):
             logger.error(f"OpenAI API request failed: {str(e)}")
             raise
 
-    def execute_whois_lookup(
+    async def execute_whois_lookup(
         self,
         target: str,
     ) -> Dict[str, Any]:
         """Execute WHOIS lookup for the given domain and return a formatted report"""
         tld = target.split(".")[-1].lower()
-        if tld in ["com", "net", "org", "info", "biz"]:
+        if tld in ["com", "net", "org", "info", "biz", "co", "io"]:
             server = "whois.verisign-grs.com"
         elif tld == "io":
             server = "whois.nic.io"
@@ -82,17 +80,19 @@ class WrapperWhoisAgent(WrapperAgent):
             self.task_logger.info(f"Executing WHOIS lookup with target={target}")
             start_time = datetime.now(timezone.utc)
 
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(10)
-            sock.connect((server, port))
-            sock.sendall(query.encode())
+            reader, writer = await asyncio.open_connection(server, port)
+            writer.write(query.encode())
+            await writer.drain()
+
             response = b""
             while True:
-                data = sock.recv(4096)
+                data = await reader.read(4096)
                 if not data:
                     break
                 response += data
-            sock.close()
+
+            writer.close()
+            await writer.wait_closed()
 
             execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
@@ -101,7 +101,7 @@ class WrapperWhoisAgent(WrapperAgent):
             )
 
             # Parse the WHOIS response
-            parsed_report = self.parse_whois_response(response.decode())
+            parsed_report = await self.parse_whois_response(response.decode())
 
             return {"whois_report": parsed_report}
 
@@ -109,7 +109,7 @@ class WrapperWhoisAgent(WrapperAgent):
             self.task_logger.error(f"An error occurred during WHOIS lookup: {str(e)}")
             return {"error": f"An error occurred during WHOIS lookup: {str(e)}"}
 
-    def parse_whois_response(self, whois_data: str) -> str:
+    async def parse_whois_response(self, whois_data: str) -> str:
         """Parse the raw WHOIS data and format it into a readable report"""
 
         # Define regex patterns for desired fields
@@ -162,50 +162,55 @@ class WrapperWhoisAgent(WrapperAgent):
 
         return False
 
-    def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
-        if not isinstance(task, dict) or "_id" not in task:
+    async def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        self.task_logger.info("**************** WHOIS AGENT ****************")
+        if not isinstance(task, dict) or "task_id" not in task or "step_id" not in task:
             logger.error("Invalid task format")
             return self._create_task_result(
-                task.get("_id"), error="Invalid task format"
+                task.get("task_id"), task.get("step_id"), error="Invalid task format"
             )
 
         try:
-            task_id = task.get("_id")
-            self.task_logger.info(f"Processing task with ID: {task_id}")
+            task_id = task.get("task_id")
+            step_id = task.get("step_id")
+            self.task_logger.info(f"Processing task with ID: {task_id} and step ID: {step_id}")
 
-            # Extract current step index and steps
-            current_step_index = task.get("current_step_index")
-            steps = task.get("steps", [])
-            if current_step_index is None or current_step_index >= len(steps):
-                logger.error("Invalid current_step_index")
-                return self._create_task_result(
-                    task.get("_id"), error="Invalid current_step_index"
-                )
+            # Extract current step description
+            step_description = task.get("description", "")
 
-            current_step = steps[current_step_index]
-            step_description = current_step.get("step_description", "")
-
+            # Combine previous results with the current step description if available
             task_prompt = f"Current step:\n{step_description}"
 
+            targets = task.get("targets", [])
+            if targets:
+                task_prompt += f"\n\nTargets: {targets} \n\n"
+
+            context = task.get("context", "")
+
+            if context:
+                task_prompt += f"\n\nPrevious step execution context(Use to guide yourself): {context} \n\n"
+
             # Parse the command using structured output
-            parsed_command = self._call_openai_api(task_prompt)
+            parsed_command = await self._call_openai_api(task_prompt)
 
             logger.info(f"Using command parameters: target={parsed_command.target}")
 
             # Validate the target
             if not self.is_valid_target(parsed_command.target):
                 return self._create_task_result(
-                    task.get("_id"),
+                    task_id=task_id,
+                    step_id=step_id,
                     error=f"Invalid target: {parsed_command.target}",
                 )
 
             # Execute the WHOIS lookup
-            whois_result = self.execute_whois_lookup(target=parsed_command.target)
+            whois_result = await self.execute_whois_lookup(target=parsed_command.target)
 
             if "whois_report" in whois_result:
                 # Prepare the result to send back to BOSS
                 result = self._create_task_result(
-                    task.get("_id"),
+                    task_id=task_id,
+                    step_id=step_id,
                     step_description=step_description,
                     result=whois_result["whois_report"],
                     metadata={"target": parsed_command.target},
@@ -213,7 +218,9 @@ class WrapperWhoisAgent(WrapperAgent):
             else:
                 # Handle errors
                 result = self._create_task_result(
-                    task.get("_id"), error=whois_result.get("error", "Unknown error")
+                    task_id=task_id,
+                    step_id=step_id,
+                    error=whois_result.get("error", "Unknown error"),
                 )
 
             return result
@@ -221,10 +228,14 @@ class WrapperWhoisAgent(WrapperAgent):
         except ValidationError as ve:
             logger.error(f"Validation error: {ve}")
             return self._create_task_result(
-                task.get("_id"), error=f"Validation error: {ve}"
+                task_id=task.get("task_id", "unknown"),
+                step_id=task.get("step_id", "unknown"),
+                error=f"Validation error: {ve}",
             )
         except Exception as e:
             logger.error(f"Error processing task: {str(e)}")
             return self._create_task_result(
-                task.get("_id"), error=f"Error processing task: {str(e)}"
+                task_id=task.get("task_id", "unknown"),
+                step_id=task.get("step_id", "unknown"),
+                error=f"Error processing task: {str(e)}",
             )

@@ -2,7 +2,7 @@ import asyncio
 import logging
 import math
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import motor.motor_asyncio
 from bson import ObjectId
@@ -103,6 +103,9 @@ class TreeNode:
         self.is_simulation_sent: bool = (
             False  # New attribute to track simulation status
         )
+
+        self.agent_metadata: Optional[Dict[str, Any]] = None
+        self.agent_output: Optional[str] = None
 
     def __str__(self):
         return (
@@ -242,6 +245,8 @@ class SelfPlayMCTS:
             "children": [self.serialize_tree(child) for child in node.children],
             "llm_evaluation": node.llm_evaluation,
             "uct_score": node.uct_score,
+            "agent_metadata": node.agent_metadata,
+            "agent_output": node.agent_output
         }
 
     async def from_boss_results(self):
@@ -257,6 +262,13 @@ class SelfPlayMCTS:
             node = self._find_node_by_task_and_step_id(task_id, step_id)
             if node:
                 # Evaluate the agent's performance using LLM
+
+                metadata = result.get("metadata", {})
+                node.agent_metadata = metadata  # Store in the node for future reference
+
+                agent_output = result.get("agent_output", "")
+                node.agent_output = agent_output
+
                 evaluation = await self._evaluate_agent_performance(result)
                 reward = 1.0 if evaluation.success else 0.0
                 # Update node with evaluation details
@@ -448,6 +460,17 @@ class SelfPlayMCTS:
         # Update the task tree structure
         await self.update_task_tree_structure(task)
 
+    def _build_execution_context(self, node: TreeNode) -> Dict:
+        context = {}
+        parent = node.parent
+        if parent and parent.llm_evaluation:
+            context["previous_step_description"] = parent.step_description
+            context["previous_step_evaluation"] = parent.llm_evaluation
+            # Optionally include the agent output of the previous step
+            if hasattr(parent.llm_evaluation, 'agent_output'):
+                context["previous_step_agent_output"] = parent.llm_evaluation.agent_output
+        return context
+
     async def _simulate(self, node: TreeNode, task: Dict):
         """Send the task step and agent to BOSS for execution"""
         logger.info(f"Simulating node {node} with state {node.step_description}")
@@ -460,6 +483,9 @@ class SelfPlayMCTS:
 
         final_targets = node.targets if node.targets else task.get("targets", [])
 
+
+        context = self._build_execution_context(node)
+
         # Prepare the task execution request
         execution_request = {
             "task_id": node.task_id,
@@ -468,6 +494,7 @@ class SelfPlayMCTS:
             "agent_id": node.agent_id,
             "task_description": task.get("description", ""),
             "targets": final_targets,
+            "context": context,
         }
 
         # Send the request to BOSS via the queue

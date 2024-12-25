@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -73,3 +73,13 @@ class TaskEvaluationResponse(BaseModel):
     )
 
     agent_output: Optional[str]
+
+
+class ScanFinding(BaseModel):
+    """Model for individual scan findings"""
+
+    parameter: str
+    injection_type: str
+    details: Dict[str, Any]
+    timestamp: str
+    severity: str

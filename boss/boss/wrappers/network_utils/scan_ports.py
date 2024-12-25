@@ -1,7 +1,10 @@
 import asyncio
+import logging
 import socket
 
 from boss.wrappers.network_utils.parse_target import parse_target
+
+logger = logging.getLogger(__name__)
 
 
 async def scan_port(ip, port, timeout):
@@ -43,7 +46,7 @@ async def scan_single_ip(ip, ports, timeout, semaphore):
 
 
 # Modify the scan_ports function to accept a list of ports
-def scan_ports(target, ports_to_scan, timeout=0.5, max_concurrent=100):
+async def scan_ports(target, ports_to_scan, timeout=0.5, max_concurrent=100):
     """
     Asynchronously scans TCP ports on the specified target and returns a report.
 
@@ -56,32 +59,25 @@ def scan_ports(target, ports_to_scan, timeout=0.5, max_concurrent=100):
     try:
         hostname, ip_addresses = parse_target(target)
     except Exception as e:
-        print(f"Error parsing target: {e}")
+        logger.error(f"Error parsing target: {e}")
         return ""
 
     if not ip_addresses:
-        print("No IP addresses to scan.")
+        logger.info("No IP addresses to scan.")
         return ""
 
-    async def main():
-        semaphore = asyncio.Semaphore(max_concurrent)
-        scan_results = {}
-        for ip in ip_addresses:
-            print(f"\nStarting scan on IP: {ip}")
-            try:
-                open_ports = await scan_single_ip(ip, ports_to_scan, timeout, semaphore)
-                scan_results[ip] = open_ports
-                print(f"Scan on {ip} completed. {len(open_ports)} open ports found.")
-            except Exception as e:
-                print(f"Error scanning IP {ip}: {e}")
-                continue
-        return scan_results
+    semaphore = asyncio.Semaphore(max_concurrent)
 
-    try:
-        scan_results = asyncio.run(main())
-    except Exception as e:
-        print(f"Error during asynchronous scanning: {e}")
-        return ""
+    scan_results = {}
+    for ip in ip_addresses:
+        logger.info(f"\nStarting scan on IP: {ip}")
+        try:
+            open_ports = await scan_single_ip(ip, ports_to_scan, timeout, semaphore)
+            scan_results[ip] = open_ports
+            logger.info(f"Scan on {ip} completed. {len(open_ports)} open ports found.")
+        except Exception as e:
+            logger.error(f"Error scanning IP {ip}: {e}")
+            continue
 
     # Format the results similar to Nmap
     report = ""
