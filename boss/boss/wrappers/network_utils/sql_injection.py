@@ -10,6 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
+from boss.models import ScanFinding
 
 import anthropic
 import httpx
@@ -70,7 +71,7 @@ class ScanResult:
     target: str
     path: str
     timestamp: str
-    findings: List[Dict[str, Any]]
+    findings: List[ScanFinding]
     parameters_tested: List[TestParameter]
     errors: List[str]
     success: bool
@@ -186,11 +187,12 @@ class SecurityScanner:
                     result = await self._test_parameter(path, param)
                     if result:
                         findings.append(
-                            {
-                                "parameter": param.name,
-                                "injection_type": param.injection_type,
-                                "details": result,
-                            }
+                            ScanFinding(
+                                parameter=param.name,
+                                injection_type=param.injection_type,
+                                details=result,
+                                severity="HIGH",  # SQL injection is typically high severity
+                            )
                         )
                 except Exception as e:
                     errors.append(f"Parameter test failed: {str(e)}")
@@ -214,7 +216,7 @@ class SecurityScanner:
             prompt = self._build_parameter_prompt(path)
             response = await self.client.messages.create(
                 model="claude-3-5-haiku-latest",
-                max_tokens=8192,
+                max_tokens=2048,
                 system="You are expert in offensive security and penetration testing. Generate test parameters for SQL injection scan.",
                 messages=[{"role": "user", "content": prompt}],
             )

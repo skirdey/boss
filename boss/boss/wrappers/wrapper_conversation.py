@@ -52,7 +52,7 @@ class WrapperConversation(WrapperAgent):
             response = await self.anthropic.messages.create(
                 max_tokens=8192,
                 messages=messages,
-                model="claude-3-5-haiku-latest",
+                model="claude-3-5-sonnet-latest",
             )
 
             end_time = datetime.now(timezone.utc)
@@ -66,8 +66,7 @@ class WrapperConversation(WrapperAgent):
                 metrics={
                     "processing_time_seconds": processing_time,
                     "token_count": sum(len(msg["content"].split()) for msg in messages),
-                    "response_length": len(response.content[0].text),
-                    "model_used": "claude-3-5-haiku-latest",
+                    "response_length": len(response.content[0].text)
                 },
                 error=None,
             )

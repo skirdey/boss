@@ -106,43 +106,44 @@ db.agents.insertMany([
         "capabilities": ["Agent for performing web application vulnerability scans using the Wapiti command-line tool. It executes Wapiti with parameters derived from a task description, captures the scan report (preferably in JSON format), and returns the results. Supports configuring scan scope, modules, authentication, and other options. Effectively acts as a wrapper around the Wapiti CLI, making it accessible through natural language instructions."],
         "status": "active",
         "priority": 90
-    }
-    // {
-    //     "agent_id": "agent_network_scan_ports",
-    //     "capabilities": [
-    //         "can scan ports on a given IP or domain and return the results without any additional setup in a single step"
-    //     ],
-    //     "status": "active",
-    //     "priority": 99
-    // },
+    },
 
-    // // {
-    // //     "agent_id": "agent_network_whois_lookup",
-    // //     "capabilities": [
-    // //         "can perform a whois lookup on a given domain, hostname, or IP address and return the results without any additional setup in a single step"
-    // //     ],
-    // //     "status": "active",
-    // // },
+    // works as expected
+    {
+        "agent_id": "agent_network_scan_ports",
+        "capabilities": [
+            "can scan ports on a given IP or domain and return the results without any additional setup in a single step"
+        ],
+        "status": "active",
+        "priority": 100
+    },
 
-    // {
-    //     "agent_id": "agent_rest_tester",
-    //     "capabilities": ["High priority agent. Can test REST endpoints by sending requests and receiving responses"],
-    //     "status": "active",
-    //     "priority": 95
-    // },
-    // // {
-    // //     "agent_id": "agent_websocket_tester",
-    // //     "capabilities": ["High priority agent. can test WebSocket endpoints by sending messages and receiving responses"],
-    // //     "status": "active",
-    // //     "priority": 70
-    // // },
+    // works as expected
+    {
+        "agent_id": "agent_network_whois_lookup",
+        "capabilities": [
+            "can perform a whois lookup on a given domain, hostname, or IP address and return the results without any additional setup in a single step"
+        ],
+        "status": "active",
+    },
 
-    // {
-    //     "agent_id": "agent_sql_injection_tester",
-    //     "capabilities": ["High priority agent. This agent uses an LLM to generate and execute SQL injection tests against a target URL and specified paths. It analyzes responses for vulnerabilities, assessing their severity and reporting findings, but is designed for educational environments and controlled testing due to its reliance on predictable patterns and lack of robust input validation. Agent requires a list of paths and target urls to perform the tests"],
-    //     "status": "active",
-    //     "priority": 90
-    // },
+    // works as expected
+    {
+        "agent_id": "agent_rest_tester",
+        "capabilities": [
+            "High-priority agent that tests REST endpoints by sending requests and analyzing responses for potential security vulnerabilities (e.g., SQL injection, cross-site scripting, path traversal). It can generate various test scenarios, handle different authentication schemes, and return detailed findings including potential error messages, suspicious indicators, and execution metrics."
+        ],
+        "status": "active",
+        "priority": 95
+    },
+
+    // works as expected
+    {
+        "agent_id": "agent_sql_injection_tester",
+        "capabilities": ["High priority agent. This agent uses an LLM to generate and execute SQL injection tests against a target URL and specified paths. It analyzes responses for vulnerabilities, assessing their severity and reporting findings, but is designed for educational environments and controlled testing due to its reliance on predictable patterns and lack of robust input validation. Agent requires a list of paths and target urls to perform the tests"],
+        "status": "active",
+        "priority": 90
+    },
 
 
 ]);

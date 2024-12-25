@@ -256,6 +256,7 @@ class WrapperAgent(ABC):
         if error:
             task_result["error"] = error
             task_result["result"] = "None"
+            task_result["agent_output"] = "None"
             task_result["success"] = False
         if metadata:
             task_result["metadata"] = metadata
