@@ -38,3 +38,4 @@ jobs:
         cd boss && pytest -n auto tests/
       env:
         PYTHONPATH: ${{ github.workspace }}
+        OPENAI_API_KEY: "test"
