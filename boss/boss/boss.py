@@ -280,7 +280,7 @@ class BOSS:
                 async for task in self.tasks_collection.find(
                     {"status": {"$in": [TaskState.CREATED.value]}}
                 ):
-                    logger.info(f"Found task: {task.get("_id")}")
+                    logger.info(f"Found task: {task.get('_id')}")
 
                     await self.task_queue.put(task)
                     # Update task status to prevent reprocessing

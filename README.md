@@ -119,19 +119,14 @@ The LLM serves multiple roles:
 
 1. **Clone the Repository**
 
-2. **Create Virtual Environment & Install Dependencies:**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
 
-3. **Build Web Components:**
+
+2. **Build Web Components:**
    ```bash
    cd web && docker compose build
    ```
 
-4. **Start Infrastructure Services:**
+3. **Start Infrastructure Services:**
    ```bash
    # In root directory
    docker compose up
@@ -143,9 +138,9 @@ The LLM serves multiple roles:
 
    Run `docker compose down -v && docker compose down && docker compose up` to clear kafka topics and volumes and restart the services.
 
-5. **Run BOSS:**
+4. **Run BOSS:**
    ```bash
-   python boss/start.py
+   uv run boss/start.py
    ```
 
 ### Environment Variables
