@@ -178,7 +178,6 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
 python-nmap==0.7.1
 pytz==2024.2
-pywin32==308
 PyYAML==6.0.2
 regex==2024.11.6
 requests==2.32.3
