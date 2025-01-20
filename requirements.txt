@@ -21,7 +21,7 @@ boto3==1.36.2
 botocore==1.36.2
 Brotli==1.1.0
 browser-cookie3==0.19.1
-browser-use==0.1.26
+browser-use==0.1.25
 bs4==0.0.2
 cachetools==5.5.0
 certifi==2024.8.30
