@@ -58,3 +58,5 @@ beautifulsoup4==4.12.3
 aiohttp==3.11.11
 aiodns==3.2.0
 motor==3.6.0
+wapiti3==3.2.2
+google-genai

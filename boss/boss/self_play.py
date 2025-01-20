@@ -1,16 +1,29 @@
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import os
 import asyncio
 import logging
 import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from google import genai
 import motor.motor_asyncio
 from bson import ObjectId
 from pydantic import BaseModel, Field
 
 from boss.boss_prompts import BossPrompts
 from boss.llm_client import call_openai_api_structured
-from boss.models import TaskEvaluationResponse
+from boss.models import TaskEvaluationResponse, TaskState
+
+
+google_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+# request = await client.aio.models.generate_content(
+#    model='gemini-2.0-flash-exp', contents='Tell me a story in 300 words.'
+# )
 
 
 class EstimatedNode(BaseModel):
@@ -107,6 +120,8 @@ class TreeNode:
         self.agent_metadata: Optional[Dict[str, Any]] = None
         self.agent_output: Optional[str] = None
 
+        self.is_summarized: bool = False
+
     def __str__(self):
         return (
             f"TreeNode(step_id={self.step_id}, step_description={self.step_description}) "
@@ -158,8 +173,8 @@ class SelfPlayMCTS:
         self.result_queue = result_queue
         self.selfplay_response_queue = selfplay_response_queue
 
-        self.max_experiments: int = 3  # Number of MCTS iterations per task
-        self.max_children_per_node: int = 3  # Max number of children per node
+        self.max_experiments: int = 100  # Number of MCTS iterations per task
+        self.max_children_per_node: int = 100  # Max number of children per node
 
         self.pending_simulations: Dict[str, TreeNode] = {}  # Track pending simulations
 
@@ -246,44 +261,62 @@ class SelfPlayMCTS:
             "llm_evaluation": node.llm_evaluation,
             "uct_score": node.uct_score,
             "agent_metadata": node.agent_metadata,
-            "agent_output": node.agent_output
+            "agent_output": node.agent_output,
+            "is_summarized": node.is_summarized,
         }
 
     async def from_boss_results(self):
-        """
-        Continuously listens for results of executed steps from the result_queue,
-        evaluates the outcome, and backpropagates the reward in the MCTS tree.
-        """
         while True:
             result = await self.result_queue.get()
             task_id = result["task_id"]
             step_id = result["step_id"]
-            # Update the MCTS tree with the result
+
             node = self._find_node_by_task_and_step_id(task_id, step_id)
             if node:
-                # Evaluate the agent's performance using LLM
-
-                metadata = result.get("metadata", {})
-                node.agent_metadata = metadata  # Store in the node for future reference
-
-                agent_output = result.get("agent_output", "")
-                node.agent_output = agent_output
-
+                # Evaluate agent performance, etc.
                 evaluation = await self._evaluate_agent_performance(result)
                 reward = 1.0 if evaluation.success else 0.0
-                # Update node with evaluation details
-                node.llm_evaluation = evaluation.model_dump()
 
+                node.llm_evaluation = evaluation.model_dump()
                 await self._backpropagate(node, reward)
+
                 # Remove from pending simulations
-                simulation_key = f"{task_id}_{step_id}"
-                self.pending_simulations.pop(simulation_key, None)
+
                 # Update the task tree structure
                 task = self.get_task_by_id(task_id)
                 if task:
                     await self.update_task_tree_structure(task)
-                else:
-                    logger.warning(f"Task with id {task_id} not found.")
+
+                # ----------------------------------------------------------------
+                # HERE: Re-check if the tree is done after we backpropagate:
+                root = self.root_nodes.get(task_id)
+                if root:
+                    # If the root is complete and no pending sims, do final summary
+                    if self._is_tree_fully_explored(root) and not self.pending_simulations and not root.is_summarized:
+                        logger.info(f"All simulations done for task {task_id}, summarizing results...")
+                        await self.summarize_task_results(task_id)
+                # ----------------------------------------------------------------
+
+            else:
+                logger.warning(f"No node found with task_id={task_id} and step_id={step_id}")
+
+            simulation_key = f"{task_id}_{step_id}"
+            self.pending_simulations.pop(simulation_key, None)
+
+    def _is_tree_fully_explored(self, root: TreeNode) -> bool:
+        """
+        Returns True if *every* node in the entire subtree
+        has no untried_steps left (i.e. fully expanded).
+        """
+        queue = [root]
+        while queue:
+            node = queue.pop(0)
+            if node.untried_steps:
+                return False  # Found a node that can still expand
+            queue.extend(node.children)
+        return True
+
+
 
     async def _evaluate_agent_performance(self, result: Dict) -> TaskEvaluationResponse:
         """
@@ -454,8 +487,9 @@ class SelfPlayMCTS:
                 await self._simulate(node, task)
                 node.is_simulation_sent = True  # Mark as simulation sent
 
-            # We do NOT backpropagate here because the step execution (and thus reward)
-            # will come later from from_boss_results.
+        if  not self.pending_simulations and not root.is_summarized:
+            logger.info(f"All simulations done for task {task_id}, summarizing results...")
+            await self.summarize_task_results(task_id)
 
         # Update the task tree structure
         await self.update_task_tree_structure(task)
@@ -833,3 +867,76 @@ class SelfPlayMCTS:
             return True
 
         return False
+    
+
+    async def summarize_task_results(self, task_id: str):
+        """
+        Generates a final summary of the MCTS tree exploration using Gemini,
+        attaches it to the root node, and updates the database.
+        """
+        async with self.tree_lock:
+            root_node = self.root_nodes.get(task_id)
+            if not root_node:
+                logger.error(f"No root node found for task_id={task_id}")
+                return
+
+            task = self.get_task_by_id(task_id)
+            if not task:
+                logger.error(f"Task with id {task_id} not found in task store.")
+                return
+
+            # 1. Collect Tree Data:
+            all_steps_data = []
+            queue = [root_node]
+
+            while queue:
+                current_node = queue.pop(0)
+                if current_node.step_description:
+                    step_info = {
+                        "step_description": current_node.step_description,
+                        "llm_evaluation": current_node.llm_evaluation,
+                        "agent_output": current_node.agent_output,
+                        "agent_metadata": current_node.agent_metadata,
+                        "agent_id": current_node.agent_id,
+
+                    }
+                    all_steps_data.append(step_info)
+                queue.extend(current_node.children)
+
+            # 2. Format prompt
+            prompt_data = {
+                "task_description": task.get("description", "No description available"),
+                "steps_data": all_steps_data,
+            }
+
+            # Use BossPrompts to format the summary prompt
+            messages = BossPrompts.format_final_summary(
+                task_description=prompt_data["task_description"],
+                steps_data = prompt_data["steps_data"]
+            )
+            # 3. Call Gemini API
+            try:
+                summary_response = await google_client.aio.models.generate_content(
+                    model="gemini-2.0-flash-exp",
+                    contents=messages,
+                )
+            except Exception as e:
+                logger.error(f"Error during Gemini API call: {e}", exc_info=True)
+                return
+
+            # 4. Update root node with summary
+            root_node.agent_output = summary_response
+            root_node.is_summarized = True
+
+            # 5. Update the task structure in database
+
+            await self.tasks_collection.update_one(
+                {"_id": ObjectId(task_id)},
+                {"$set": {"status": TaskState.COMPLETED_WORKFLOW.value}},
+            )
+
+
+            await self.update_task_tree_structure(task)
+
+   
+            logger.info(f"Summarized results for task {task_id} and updated root node.")

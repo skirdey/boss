@@ -189,6 +189,32 @@ Provide evaluation in TaskEvaluationResponse format including:
                 ),
             },
         ]
+    
+
+    @staticmethod
+    def format_final_summary(task_description: str, steps_data: List[Dict]) -> str:
+        """Format the final summary prompts"""
+
+        formatted_steps = "\n".join([
+            f"  - Step: {step['step_description']}\n"
+            f"    - Agent: {step.get('agent_id', 'N/A')}\n"
+            f"    - Output: {step.get('agent_output', 'N/A')}\n"
+            f"    - Evaluation: {step.get('llm_evaluation', 'N/A')}\n"
+            f"    - Metadata: {step.get('agent_metadata', 'N/A')}"
+            for step in steps_data
+        ])
+
+        return [
+            {"role": "system", "content": BossPrompts.FINAL_SUMMARY_SYSTEM},
+            {
+                "role": "user",
+                "content": BossPrompts.FINAL_SUMMARY_USER.format(
+                    task_description=task_description,
+                    steps_data=formatted_steps,
+                ),
+            },
+        ]
+    
 
     @staticmethod
     def validate_prompt_format(messages: List[Dict[str, str]]) -> bool:
