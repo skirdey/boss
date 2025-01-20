@@ -106,6 +106,23 @@ Provide evaluation in TaskEvaluationResponse format including:
 - Any additional steps needed
 """
 
+
+    FINAL_SUMMARY_SYSTEM = """
+
+You are expert in evaluating workflows as complete or still in progress. 
+
+"""
+
+    FINAL_SUMMARY_USER = """
+
+Analyze this workflow, and determine if task was completed or not, then summarize the entire task and workflow in a few paragraphs, keeping focus on technical details.     
+
+{task_description}
+
+{formatted_steps}
+
+"""
+
     # All other methods remain exactly the same as in the original
     @staticmethod
     def format_additional_steps_necessity_check(
