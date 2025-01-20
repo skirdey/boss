@@ -125,10 +125,49 @@ class BOSS:
             await self.result_consumer.stop()
 
     async def handle_agent_result(self, result):
-        # Placeholder for actual implementation
-        logger.info(f"Handling agent result: {result}")
-        # Implement your logic here
-        pass
+        """
+        Handle the result received from an agent.
+        Update task status and perform any necessary actions based on the result.
+        """
+        task_id = result.get("task_id")
+        step_id = result.get("step_id")
+        success = result.get("success", False)
+        error = result.get("error")
+
+        if not task_id or not step_id:
+            logger.error("Invalid result format: missing task_id or step_id")
+            return
+
+        try:
+            # Update task status based on success or failure
+            if success:
+                logger.info(
+                    f"Agent reported successful completion of task {task_id}, step {step_id}"
+                )
+                await self.tasks_collection.update_one(
+                    {"_id": ObjectId(task_id), "tree_structure.children.step_id": step_id},
+                    {
+                        "$set": {
+                            "tree_structure.children.$.status": "Completed",
+                        }
+                    },
+                )
+
+            else:
+                logger.warning(
+                    f"Agent reported failure for task {task_id}, step {step_id}: {error}"
+                )
+                await self.tasks_collection.update_one(
+                    {"_id": ObjectId(task_id), "tree_structure.children.step_id": step_id},
+                    {
+                        "$set": {
+                            "tree_structure.children.$.status": "Failed",
+                        }
+                    },
+                )
+
+        except Exception as e:
+            logger.error(f"Error updating task status: {e}")
 
     async def _process_task_with_inference(self, task):
         # Placeholder for actual implementation

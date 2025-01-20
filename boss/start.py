@@ -14,18 +14,17 @@ from boss.self_play import SelfPlayMCTS
 # from boss.wrappers.wrapper_whois_agent import WrapperWhoisAgent
 # from boss.wrappers.wrapper_scan_port_agent import WrapperScanPortAgent
 # from boss.wrappers.wrapper_api_explorer_agent import WrapperAPIExplorerAgent
-# from boss.wrappers.wrapper_conversation import WrapperConversation
+from boss.wrappers.wrapper_conversation import WrapperConversation
 # from boss.wrappers.wrapper_dig_agent import WrapperDigAgent
 # from boss.wrappers.wrapper_html_analyzer_agent import WrapperHTMLAnalyzerAgent
-# from boss.wrappers.wrapper_ping_agent import WrapperPing
+from boss.wrappers.wrapper_ping_agent import WrapperPing
 # from boss.wrappers.wrapper_ssl_cert_analysis_agent import (
 #     WrapperGetSSLCertificateAnalysisAgent,
 # )
-# from boss.wrappers.wrapper_wapiti_agent import WrapperWapitiCliAgent
-# from boss.wrappers.wrapper_websocket_agent import WrapperWebSocketAgent
+from boss.wrappers.wrapper_websocket_agent import WrapperWebSocketAgent
 # from boss.wrappers.wrapper_xss_agent import WrapperXssAgent
 
-# from boss.wrappers.wrapper_sql_injection_agent import WrapperSQLInjectionAgent
+from boss.wrappers.wrapper_sql_injection_agent import WrapperSQLInjectionAgent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -96,20 +95,19 @@ async def main():
                 "selfplay_response_queue": selfplay_response_queue,
             },
         ),
-        # WrapperPing,
-        # WrapperConversation,
+        WrapperPing,
+        WrapperConversation,
         # WrapperDigAgent,
         # WrapperHTMLAnalyzerAgent,
         # WrapperGetSSLCertificateAnalysisAgent,
         # WrapperAPIExplorerAgent,
         # WrapperXssAgent,
-        # WrapperWebSocketAgent,
-        # WrapperWapitiCliAgent,
+        WrapperWebSocketAgent,
         # WrapperScanPortAgent,
         # WrapperWhoisAgent,
         # WrapperRESTTesterAgent,
 
-        # WrapperSQLInjectionAgent,
+        WrapperSQLInjectionAgent,
 
         WrapperBrowserUseAgent
 

@@ -8,7 +8,7 @@ db.tasks.insertMany([
     {
         "_id": ObjectId(),
         "notes": "",
-        "description": "Discover vulnerabilities on 127.0.0.1:8080/WebGoat ",
+        "description": "Discover vulnerabilities on https://developers.inflection.ai ",
         "status": "Created",
         "created_at": new Date(),
         "updated_at": new Date(),
@@ -36,25 +36,25 @@ db.agents.insertMany([
         "priority": 80
     },
 
-    // // works as expected
-    // {
-    //     "agent_id": "agent_network_ping",
-    //     "capabilities": [
-    //         "can interact with command line interface to call `ping` command, this agent is able to ping a given IP or a domain and return the results without any additional setup in a single step"
-    //     ],
-    //     "status": "active",
-    //     "priority": 50
-    // },
+    // works as expected
+    {
+        "agent_id": "agent_network_ping",
+        "capabilities": [
+            "can interact with command line interface to call `ping` command, this agent is able to ping a given IP or a domain and return the results without any additional setup in a single step"
+        ],
+        "status": "active",
+        "priority": 50
+    },
 
-    // // works as expected
-    // {
-    //     "agent_id": "agent_conversation",
-    //     "capabilities": [
-    //         "can analyze data, answer questions, and provide broad insights (do not have access to CLI or internet) - this agent is perfect for research, reasoning, data analysis, etc."
-    //     ],
-    //     "status": "active",
-    //     "priority": 50
-    // },
+    // works as expected
+    {
+        "agent_id": "agent_conversation",
+        "capabilities": [
+            "can analyze data, answer questions, and provide broad insights (do not have access to CLI or internet) - this agent is perfect for research, reasoning, data analysis, etc."
+        ],
+        "status": "active",
+        "priority": 50
+    },
 
     // // works as expected
     // {
@@ -102,13 +102,13 @@ db.agents.insertMany([
     //     "priority": 100
     // },
 
-    // // works as expected
-    // {
-    //     "agent_id": "agent_websocket_tester",
-    //     "capabilities": ["Agent for testing WebSocket endpoints. It connects to a WebSocket server, sends a sequence of messages with optional delays, handles different test scenarios (e.g., normal operation, connection drops, malformed messages), and validates received responses against expected patterns. Supports various authentication methods and allows configuration of connection timeouts and headers."],
-    //     "status": "active",
-    //     "priority": 100
-    // },
+    // works as expected
+    {
+        "agent_id": "agent_websocket_tester",
+        "capabilities": ["Agent for testing WebSocket endpoints. It connects to a WebSocket server, sends a sequence of messages with optional delays, handles different test scenarios (e.g., normal operation, connection drops, malformed messages), and validates received responses against expected patterns. Supports various authentication methods and allows configuration of connection timeouts and headers."],
+        "status": "active",
+        "priority": 100
+    },
 
     // // works as expected
     // {
@@ -118,15 +118,15 @@ db.agents.insertMany([
     //     "priority": 90
     // },
 
-    // // works as expected
-    // {
-    //     "agent_id": "agent_network_scan_ports",
-    //     "capabilities": [
-    //         "can scan ports on a given IP or domain and return the results without any additional setup in a single step"
-    //     ],
-    //     "status": "active",
-    //     "priority": 100
-    // },
+    // works as expected
+    {
+        "agent_id": "agent_network_scan_ports",
+        "capabilities": [
+            "can scan ports on a given IP or domain and return the results without any additional setup in a single step"
+        ],
+        "status": "active",
+        "priority": 100
+    },
 
     // // works as expected
     // {
@@ -137,23 +137,23 @@ db.agents.insertMany([
     //     "status": "active",
     // },
 
-    // // works as expected
-    // {
-    //     "agent_id": "agent_rest_tester",
-    //     "capabilities": [
-    //         "High-priority agent that tests REST endpoints by sending requests and analyzing responses for potential security vulnerabilities (e.g., SQL injection, cross-site scripting, path traversal). It can generate various test scenarios, handle different authentication schemes, and return detailed findings including potential error messages, suspicious indicators, and execution metrics."
-    //     ],
-    //     "status": "active",
-    //     "priority": 95
-    // },
+    // works as expected
+    {
+        "agent_id": "agent_rest_tester",
+        "capabilities": [
+            "High-priority agent that tests REST endpoints by sending requests and analyzing responses for potential security vulnerabilities (e.g., SQL injection, cross-site scripting, path traversal). It can generate various test scenarios, handle different authentication schemes, and return detailed findings including potential error messages, suspicious indicators, and execution metrics."
+        ],
+        "status": "active",
+        "priority": 95
+    },
 
-    // // works as expected
-    // {
-    //     "agent_id": "agent_sql_injection_tester",
-    //     "capabilities": ["High priority agent. This agent uses an LLM to generate and execute SQL injection tests against a target URL and specified paths. It analyzes responses for vulnerabilities, assessing their severity and reporting findings, but is designed for educational environments and controlled testing due to its reliance on predictable patterns and lack of robust input validation. Agent requires a list of paths and target urls to perform the tests"],
-    //     "status": "active",
-    //     "priority": 90
-    // },
+    // works as expected
+    {
+        "agent_id": "agent_sql_injection_tester",
+        "capabilities": ["High priority agent. This agent uses an LLM to generate and execute SQL injection tests against a target URL and specified paths. It analyzes responses for vulnerabilities, assessing their severity and reporting findings, but is designed for educational environments and controlled testing due to its reliance on predictable patterns and lack of robust input validation. Agent requires a list of paths and target urls to perform the tests"],
+        "status": "active",
+        "priority": 90
+    },
 
 
 ]);

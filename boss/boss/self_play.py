@@ -874,69 +874,69 @@ class SelfPlayMCTS:
         Generates a final summary of the MCTS tree exploration using Gemini,
         attaches it to the root node, and updates the database.
         """
-        async with self.tree_lock:
-            root_node = self.root_nodes.get(task_id)
-            if not root_node:
-                logger.error(f"No root node found for task_id={task_id}")
-                return
+    
+        root_node = self.root_nodes.get(task_id)
+        if not root_node:
+            logger.error(f"No root node found for task_id={task_id}")
+            return
 
-            task = self.get_task_by_id(task_id)
-            if not task:
-                logger.error(f"Task with id {task_id} not found in task store.")
-                return
+        task = self.get_task_by_id(task_id)
+        if not task:
+            logger.error(f"Task with id {task_id} not found in task store.")
+            return
 
-            # 1. Collect Tree Data:
-            all_steps_data = []
-            queue = [root_node]
+        # 1. Collect Tree Data:
+        all_steps_data = []
+        queue = [root_node]
 
-            while queue:
-                current_node = queue.pop(0)
-                if current_node.step_description:
-                    step_info = {
-                        "step_description": current_node.step_description,
-                        "llm_evaluation": current_node.llm_evaluation,
-                        "agent_output": current_node.agent_output,
-                        "agent_metadata": current_node.agent_metadata,
-                        "agent_id": current_node.agent_id,
+        while queue:
+            current_node = queue.pop(0)
+            if current_node.step_description:
+                step_info = {
+                    "step_description": current_node.step_description,
+                    "llm_evaluation": current_node.llm_evaluation,
+                    "agent_output": current_node.agent_output,
+                    "agent_metadata": current_node.agent_metadata,
+                    "agent_id": current_node.agent_id,
 
-                    }
-                    all_steps_data.append(step_info)
-                queue.extend(current_node.children)
+                }
+                all_steps_data.append(step_info)
+            queue.extend(current_node.children)
 
-            # 2. Format prompt
-            prompt_data = {
-                "task_description": task.get("description", "No description available"),
-                "steps_data": all_steps_data,
-            }
+        # 2. Format prompt
+        prompt_data = {
+            "task_description": task.get("description", "No description available"),
+            "steps_data": all_steps_data,
+        }
 
-            # Use BossPrompts to format the summary prompt
-            messages = BossPrompts.format_final_summary(
-                task_description=prompt_data["task_description"],
-                steps_data = prompt_data["steps_data"]
+        # Use BossPrompts to format the summary prompt
+        messages = BossPrompts.format_final_summary(
+            task_description=prompt_data["task_description"],
+            steps_data = prompt_data["steps_data"]
+        )
+        # 3. Call Gemini API
+        try:
+            summary_response = await google_client.aio.models.generate_content(
+                model="gemini-2.0-flash-exp",
+                contents=messages,
             )
-            # 3. Call Gemini API
-            try:
-                summary_response = await google_client.aio.models.generate_content(
-                    model="gemini-2.0-flash-exp",
-                    contents=messages,
-                )
-            except Exception as e:
-                logger.error(f"Error during Gemini API call: {e}", exc_info=True)
-                return
+        except Exception as e:
+            logger.error(f"Error during Gemini API call: {e}", exc_info=True)
+            summary_response = "Error during Gemini API call"
 
-            # 4. Update root node with summary
-            root_node.agent_output = summary_response
-            root_node.is_summarized = True
+        # 4. Update root node with summary
+        root_node.agent_output = summary_response
+        root_node.is_summarized = True
 
-            # 5. Update the task structure in database
+        # 5. Update the task structure in database
 
-            await self.tasks_collection.update_one(
-                {"_id": ObjectId(task_id)},
-                {"$set": {"status": TaskState.COMPLETED_WORKFLOW.value}},
-            )
+        await self.tasks_collection.update_one(
+            {"_id": ObjectId(task_id)},
+            {"$set": {"status": TaskState.COMPLETED_WORKFLOW.value}},
+        )
 
 
-            await self.update_task_tree_structure(task)
+        await self.update_task_tree_structure(task)
 
-   
-            logger.info(f"Summarized results for task {task_id} and updated root node.")
+
+        logger.info(f"Summarized results for task {task_id} and updated root node.")
