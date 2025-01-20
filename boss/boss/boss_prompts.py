@@ -106,6 +106,23 @@ Provide evaluation in TaskEvaluationResponse format including:
 - Any additional steps needed
 """
 
+
+    FINAL_SUMMARY_SYSTEM = """
+
+You are expert in evaluating workflows as complete or still in progress. 
+
+"""
+
+    FINAL_SUMMARY_USER = """
+
+Analyze this workflow, and determine if task was completed or not, then summarize the entire task and workflow in a few paragraphs, keeping focus on technical details.     
+
+{task_description}
+
+{steps_data}
+
+"""
+
     # All other methods remain exactly the same as in the original
     @staticmethod
     def format_additional_steps_necessity_check(
@@ -189,6 +206,32 @@ Provide evaluation in TaskEvaluationResponse format including:
                 ),
             },
         ]
+    
+
+    @staticmethod
+    def format_final_summary(task_description: str, steps_data: List[Dict]) -> str:
+        """Format the final summary prompts"""
+
+        formatted_steps = "\n".join([
+            f"  - Step: {step['step_description']}\n"
+            f"    - Agent: {step.get('agent_id', 'N/A')}\n"
+            f"    - Output: {step.get('agent_output', 'N/A')}\n"
+            f"    - Evaluation: {step.get('llm_evaluation', 'N/A')}\n"
+            f"    - Metadata: {step.get('agent_metadata', 'N/A')}"
+            for step in steps_data
+        ])
+
+        return [
+            {"role": "system", "content": BossPrompts.FINAL_SUMMARY_SYSTEM},
+            {
+                "role": "user",
+                "content": BossPrompts.FINAL_SUMMARY_USER.format(
+                    task_description=task_description,
+                    steps_data=formatted_steps,
+                ),
+            },
+        ]
+    
 
     @staticmethod
     def validate_prompt_format(messages: List[Dict[str, str]]) -> bool:
