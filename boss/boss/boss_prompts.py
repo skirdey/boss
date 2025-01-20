@@ -119,7 +119,7 @@ Analyze this workflow, and determine if task was completed or not, then summariz
 
 {task_description}
 
-{formatted_steps}
+{steps_data}
 
 """
 
