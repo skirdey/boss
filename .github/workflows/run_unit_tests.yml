@@ -29,3 +29,5 @@ jobs:
       run: uv run pytest
       env:
         OPENAI_API_KEY: "test"
+        ANTHROPIC_API_KEY: "test"
+        GEMINI_API_KEY: "test"
